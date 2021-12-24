@@ -124,11 +124,7 @@ func NewBoardFromBuffer(blockWidth, blockHeight, blockCountHoriz, blockCountVert
 
 func (b *Board) Solve() error {
 	for {
-		singles, err := b.solveNakedSingles()
-		if err != nil {
-			return err
-		}
-		pairs, err := b.solveNakedGroups()
+		nakedGroups, err := b.solveNakedGroups()
 		if err != nil {
 			return err
 		}
@@ -137,15 +133,15 @@ func (b *Board) Solve() error {
 			return err
 		}
 
-		if !singles && !pairs && !hiddenSingles {
+		if !nakedGroups && !hiddenSingles {
 			break
 		}
 	}
 
 	if b.IsSolved() {
-		fmt.Printf("solved!\n")
+		fmt.Printf("\nsolved!\n")
 	} else {
-		fmt.Printf("didn't solve!\n")
+		fmt.Printf("\ndidn't solve!\n")
 		fmt.Println(b.Unsolved())
 	}
 
@@ -160,27 +156,6 @@ func (b *Board) IsSolved() bool {
 		}
 	}
 	return true
-}
-
-func (b *Board) solveNakedSingles() (bool, error) {
-	progress := false
-
-	for x := 0; x < b.width; x++ {
-		for y := 0; y < b.height; y++ {
-			c := b.Cell(x, y)
-			if _, set := c.GetValue(); set {
-				continue
-			}
-			if possible := c.Possibilities(b.height); len(possible) == 1 {
-				fmt.Printf("only one possibility for cell (%d,%d):: %d\n", x, y, possible[0])
-				if err := b.SetValue(x, y, possible[0]); err != nil {
-					return false, fmt.Errorf("solveNakedSingles: %w", err)
-				}
-				progress = true
-			}
-		}
-	}
-	return progress, nil
 }
 
 func within(c *Cell, list []*Cell) bool {
@@ -222,41 +197,31 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 
 func (b *Board) solveNakedGroups() (bool, error) {
 	progress := false
-	// for each group
+
 	for _, g := range b.groups {
-		// construct a map that collects together cells that have
-		// identical possibilities
-		m := make(map[int][]*Cell)
-		for _, c := range g {
-			if !c.Filled() {
-				m[c.not] = append(m[c.not], c)
-			}
+		unfilled := g.Unfilled()
+		if len(unfilled) == 0 {
+			continue
 		}
-		// iterate over the map, looking for sets of N cells with N possibilities
-		for _, cells := range m {
-			possibilities := cells[0].Possibilities(b.height)
-			// did we find a such a set?
-			if len(possibilities) == len(cells) {
-				fmt.Printf("found a naked group with %+v\n", possibilities)
-				// iterate over the cells in the group
-				for _, c := range g {
-					// skip over cells that are within our set
-					if within(c, cells) {
-						continue
-					}
-					for _, val := range possibilities {
-						if c.CanTake(val) {
-							progress = true
-							x, y := b.Coords(c)
-							fmt.Printf("prohibiting %d from (%d,%d)\n", val, x, y)
-							if err := c.Prohibit(val); err != nil {
-								return false, err
+		unfilled.GenerateCombinations(func(combo Group) error {
+			possible := combo.Possibilities(b.height)
+			if len(possible) == len(combo) {
+				for _, c := range unfilled {
+					if !within(c, combo) {
+						for _, val := range possible {
+							if c.CanTake(val) {
+								if err := c.Prohibit(val); err != nil {
+									return err
+								}
+								fmt.Printf("naked group with %v prohibits %d\n", possible, val)
+								progress = true
 							}
 						}
 					}
 				}
 			}
-		}
+			return nil
+		})
 	}
 	return progress, nil
 }
