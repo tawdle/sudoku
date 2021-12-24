@@ -50,12 +50,48 @@ func TestSolver(t *testing.T) {
 			---16
 			382`,
 		},
+		{
+			title: "NYT Medium Puzzle 12/23",
+			puzzle: `5-8---713
+			-6------5
+			3
+			--2--9--1
+			---64
+			-3-81-9
+			12-----87
+			---4--6
+			4-5`,
+		},
+		{
+			title: "NYT Hard Puzzle 12/23",
+			puzzle: `-75-3
+			--1----3
+			3-----798
+
+			-----5-1
+			---27-48
+			---98
+			-47--63
+			-6---2`,
+		},
+		{
+			title: "NYT Hard 12/23 Partial",
+			puzzle: `-75 3
+			-81 2  3
+			32    798
+
+			-----5-1
+			---27-48
+			---987
+			847--6329
+			-693428`,
+		},
 	}
 
 	for _, c := range cases {
+		fmt.Printf("trying to solve %s...\n", c.title)
 		board, err := NewBoardFromBuffer(3, 3, 3, 3, strings.NewReader(c.puzzle))
 		assert.NoError(err)
-		fmt.Printf("trying to solve %s...\n", c.title)
 		err = board.Solve()
 		assert.NoError(err)
 		assert.True(board.IsSolved())

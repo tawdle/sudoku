@@ -85,6 +85,26 @@ func (g Group) Possibilities(count int) []int {
 	return result
 }
 
+func (g Group) CanTake(val int) Group {
+	var result Group
+
+	for _, c := range g {
+		if c.CanTake(val) {
+			result = append(result, c)
+		}
+	}
+	return Group(result)
+}
+
+func (g Group) ContainedBy(other Group) bool {
+	for _, c := range g {
+		if !within(c, other) {
+			return false
+		}
+	}
+	return true
+}
+
 func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 	count := len(g)
 	max := 1 << count
@@ -103,4 +123,26 @@ func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 		}
 	}
 	return nil
+}
+
+func (g Group) Intersection(other Group) Group {
+	var result []*Cell
+
+	for _, c := range g {
+		if within(c, other) {
+			result = append(result, c)
+		}
+	}
+
+	return Group(result)
+}
+
+func (g Group) Intersects(other Group) bool {
+	for _, c := range g {
+		if within(c, other) {
+			return true
+		}
+	}
+
+	return false
 }

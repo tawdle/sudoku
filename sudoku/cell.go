@@ -8,8 +8,11 @@ type Cell struct {
 }
 
 func (c *Cell) SetValue(val int) error {
-	if _, set := c.GetValue(); set {
-		return fmt.Errorf("attempted to set value on cell that has already been set")
+	if existingValue, set := c.GetValue(); set {
+		if val != existingValue {
+			return fmt.Errorf("attempted to set value on cell that has already been set")
+		}
+		return nil
 	}
 
 	if !c.CanTake(val) {

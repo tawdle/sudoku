@@ -9,12 +9,13 @@ import (
 )
 
 type Board struct {
-	cells       []Cell
-	width       int
-	height      int
-	blockWidth  int
-	blockHeight int
-	groups      []Group
+	cells         []Cell
+	width         int
+	height        int
+	blockWidth    int
+	blockHeight   int
+	groups        []Group
+	intersections map[*Group][]Group
 }
 
 func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Board {
@@ -26,19 +27,42 @@ func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Boa
 	board.blockHeight = blockHeight
 	board.cells = make([]Cell, board.width*board.height)
 
+	var blocks, cols, rows []Group
+
 	for x := 0; x < blockCountHoriz; x++ {
 		for y := 0; y < blockCountVert; y++ {
-			board.groups = append(board.groups, NewBlockGroup(board, x, y, blockWidth, blockHeight))
+			blocks = append(blocks, NewBlockGroup(board, x, y, blockWidth, blockHeight))
 		}
 	}
 
 	for x := 0; x < board.width; x++ {
-		board.groups = append(board.groups, NewColumnGroup(board, x))
+		cols = append(cols, NewColumnGroup(board, x))
 	}
 
 	for y := 0; y < board.height; y++ {
-		board.groups = append(board.groups, NewRowGroup(board, y))
+		rows = append(rows, NewRowGroup(board, y))
 	}
+
+	board.groups = append(blocks, cols...)
+	board.groups = append(board.groups, rows...)
+
+	intersect := make(map[*Group][]Group)
+
+	for i, block := range blocks {
+		for _, col := range cols {
+			if block.Intersects(col) {
+				intersect[&blocks[i]] = append(intersect[&blocks[i]], col)
+			}
+		}
+
+		for _, row := range rows {
+			if block.Intersects(row) {
+				intersect[&blocks[i]] = append(intersect[&blocks[i]], row)
+			}
+		}
+	}
+
+	board.intersections = intersect
 
 	return board
 }
@@ -56,8 +80,8 @@ func (b *Board) Coords(c *Cell) (x int, y int) {
 	panic(fmt.Errorf("couldn't find cell %+v", c))
 }
 
-func (b *Board) SetValue(x, y, val int) error {
-	fmt.Printf("setting value for cell (%d,%d) -> %d\n", x, y, val)
+func (b *Board) SetValue(reason string, x, y, val int) error {
+	fmt.Printf("%s: (%d,%d) -> %d\n", reason, x, y, val)
 	cell := b.Cell(x, y)
 
 	if err := cell.SetValue(val); err != nil {
@@ -66,15 +90,30 @@ func (b *Board) SetValue(x, y, val int) error {
 
 	for _, g := range b.groups {
 		if g.Contains(cell) {
-			g.Prohibit(val)
+			for _, c := range g {
+				if c.CanTake(val) {
+					x, y := b.Coords(c)
+					b.ProhibitValue("cascading", x, y, val)
+				}
+			}
 		}
 	}
 	return nil
 }
 
-func (b *Board) SetCellValue(c *Cell, val int) error {
-	x, y := b.Coords(c)
-	return b.SetValue(x, y, val)
+func (b *Board) ProhibitValue(reason string, x, y, val int) error {
+	cell := b.Cell(x, y)
+	if !cell.CanTake(val) {
+		return nil
+	}
+
+	fmt.Printf("%s: (%d,%d) cannot be %d\n", reason, x, y, val)
+	cell.Prohibit(val)
+	if remaining := cell.Possibilities(b.height); len(remaining) == 1 {
+		return b.SetValue("only one left after prohibition", x, y, remaining[0])
+	}
+
+	return nil
 }
 
 func (b *Board) String() string {
@@ -113,7 +152,7 @@ func NewBoardFromBuffer(blockWidth, blockHeight, blockCountHoriz, blockCountVert
 				continue
 			}
 			val := c - '0'
-			if err := board.SetValue(x, y, int(val)); err != nil {
+			if err := board.SetValue("initial value", x, y, int(val)); err != nil {
 				return nil, err
 			}
 		}
@@ -133,7 +172,12 @@ func (b *Board) Solve() error {
 			return err
 		}
 
-		if !nakedGroups && !hiddenSingles {
+		blockIntersects, err := b.solveBlockGroupIntersections()
+		if err != nil {
+			return err
+		}
+
+		if !nakedGroups && !hiddenSingles && !blockIntersects {
 			break
 		}
 	}
@@ -184,11 +228,13 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 		for val, cells := range m {
 			if len(cells) == 1 {
 				x, y := b.Coords(cells[0])
-				fmt.Printf("value %d can only appear in cell (%d,%d)\n", val, x, y)
-				if err := b.SetCellValue(cells[0], val); err != nil {
-					return false, fmt.Errorf("solveHiddenSingles: %w", err)
+				cell := b.Cell(x, y)
+				if !cell.Filled() {
+					if err := b.SetValue("value can only appear in cell", x, y, val); err != nil {
+						return false, fmt.Errorf("solveHiddenSingles: %w", err)
+					}
+					progress = true
 				}
-				progress = true
 			}
 		}
 	}
@@ -208,12 +254,12 @@ func (b *Board) solveNakedGroups() (bool, error) {
 			if len(possible) == len(combo) {
 				for _, c := range unfilled {
 					if !within(c, combo) {
+						x, y := b.Coords(c)
 						for _, val := range possible {
 							if c.CanTake(val) {
-								if err := c.Prohibit(val); err != nil {
+								if err := b.ProhibitValue("naked group", x, y, val); err != nil {
 									return err
 								}
-								fmt.Printf("naked group with %v prohibits %d\n", possible, val)
 								progress = true
 							}
 						}
@@ -222,6 +268,37 @@ func (b *Board) solveNakedGroups() (bool, error) {
 			}
 			return nil
 		})
+	}
+	return progress, nil
+}
+
+// if a number X can only appear in N cells of block A, and those N cells also appear in some other
+// group B, then we can prohibit the number X from all the other cells of group B.
+func (b *Board) solveBlockGroupIntersections() (bool, error) {
+	var progress bool
+
+	for block, intersects := range b.intersections {
+		for _, val := range block.Possibilities(b.height) {
+			set := block.CanTake(val)
+			if len(set) == 0 {
+				continue
+			}
+			for _, other := range intersects {
+				if set.ContainedBy(other) {
+					for _, c := range other {
+						if !within(c, set) {
+							x, y := b.Coords(c)
+							if c.CanTake(val) {
+								if err := b.ProhibitValue("block group intersection", x, y, val); err != nil {
+									return false, err
+								}
+								progress = true
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 	return progress, nil
 }
