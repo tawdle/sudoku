@@ -80,8 +80,8 @@ func (b *Board) Coords(c *Cell) (x int, y int) {
 	panic(fmt.Errorf("couldn't find cell %+v", c))
 }
 
-func (b *Board) SetValue(reason string, x, y, val int) error {
-	fmt.Printf("%s: (%d,%d) -> %d\n", reason, x, y, val)
+func (b *Board) SetValue(depth, reason string, x, y, val int) error {
+	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
 	cell := b.Cell(x, y)
 
 	if err := cell.SetValue(val); err != nil {
@@ -93,7 +93,7 @@ func (b *Board) SetValue(reason string, x, y, val int) error {
 			for _, c := range g {
 				if c.CanTake(val) {
 					x, y := b.Coords(c)
-					b.ProhibitValue("cascading", x, y, val)
+					b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val)
 				}
 			}
 		}
@@ -101,16 +101,16 @@ func (b *Board) SetValue(reason string, x, y, val int) error {
 	return nil
 }
 
-func (b *Board) ProhibitValue(reason string, x, y, val int) error {
+func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 	cell := b.Cell(x, y)
 	if !cell.CanTake(val) {
 		return nil
 	}
 
-	fmt.Printf("%s: (%d,%d) cannot be %d\n", reason, x, y, val)
+	fmt.Printf("%s%s: (%d,%d) cannot be %d\n", depth, reason, x, y, val)
 	cell.Prohibit(val)
 	if remaining := cell.Possibilities(b.height); len(remaining) == 1 {
-		return b.SetValue("only one left after prohibition", x, y, remaining[0])
+		return b.SetValue(depth+" ", "only one left after prohibition", x, y, remaining[0])
 	}
 
 	return nil
@@ -152,7 +152,7 @@ func NewBoardFromBuffer(blockWidth, blockHeight, blockCountHoriz, blockCountVert
 				continue
 			}
 			val := c - '0'
-			if err := board.SetValue("initial value", x, y, int(val)); err != nil {
+			if err := board.SetValue("", "initial value", x, y, int(val)); err != nil {
 				return nil, err
 			}
 		}
@@ -230,7 +230,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 				x, y := b.Coords(cells[0])
 				cell := b.Cell(x, y)
 				if !cell.Filled() {
-					if err := b.SetValue("value can only appear in cell", x, y, val); err != nil {
+					if err := b.SetValue("", "value can only appear in cell", x, y, val); err != nil {
 						return false, fmt.Errorf("solveHiddenSingles: %w", err)
 					}
 					progress = true
@@ -257,7 +257,7 @@ func (b *Board) solveNakedGroups() (bool, error) {
 						x, y := b.Coords(c)
 						for _, val := range possible {
 							if c.CanTake(val) {
-								if err := b.ProhibitValue("naked group", x, y, val); err != nil {
+								if err := b.ProhibitValue("", "naked group", x, y, val); err != nil {
 									return err
 								}
 								progress = true
@@ -289,7 +289,7 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 						if !within(c, set) {
 							x, y := b.Coords(c)
 							if c.CanTake(val) {
-								if err := b.ProhibitValue("block group intersection", x, y, val); err != nil {
+								if err := b.ProhibitValue("", "block group intersection", x, y, val); err != nil {
 									return false, err
 								}
 								progress = true
