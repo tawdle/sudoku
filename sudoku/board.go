@@ -11,13 +11,14 @@ import (
 type CellIndex int
 
 type Board struct {
-	cells         []Cell
-	width         int
-	height        int
-	blockWidth    int
-	blockHeight   int
-	groups        []Group
-	intersections map[*Group][]Group
+	cells       []Cell
+	width       int
+	height      int
+	blockWidth  int
+	blockHeight int
+	blocks      []Group
+	cols        []Group
+	rows        []Group
 }
 
 func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Board {
@@ -45,26 +46,9 @@ func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Boa
 		rows = append(rows, NewRowGroup(board, y))
 	}
 
-	board.groups = append(blocks, cols...)
-	board.groups = append(board.groups, rows...)
-
-	intersect := make(map[*Group][]Group)
-
-	for i, block := range blocks {
-		for _, col := range cols {
-			if block.Intersects(col) {
-				intersect[&blocks[i]] = append(intersect[&blocks[i]], col)
-			}
-		}
-
-		for _, row := range rows {
-			if block.Intersects(row) {
-				intersect[&blocks[i]] = append(intersect[&blocks[i]], row)
-			}
-		}
-	}
-
-	board.intersections = intersect
+	board.blocks = blocks
+	board.cols = cols
+	board.rows = rows
 
 	return board
 }
@@ -94,6 +78,10 @@ func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
 	return int(ci) % b.width, int(ci) / b.width
 }
 
+func (b Board) Groups() []Group {
+	return append(b.blocks, append(b.cols, b.rows...)...)
+}
+
 func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
 	ci := b.CellIndex(x, y)
@@ -102,7 +90,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 		return err
 	}
 
-	for _, g := range b.groups {
+	for _, g := range b.Groups() {
 		if g.Contains(ci) {
 			for _, c := range g.Cells() {
 				if c.CanTake(val) {
@@ -228,8 +216,8 @@ func within(ci int, list []int) bool {
 func (b *Board) solveHiddenSingles() (bool, error) {
 	var progress bool
 	// iterate over all the groups
-	for _, g := range b.groups {
-		// make a map that collects that cells within the group that take a specific value
+	for _, g := range b.Groups() {
+		// make a map that collects the cells within the group that take a specific value
 		m := make(map[int][]*Cell)
 		for _, c := range g.Cells() {
 			if c.Filled() {
@@ -258,7 +246,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 func (b *Board) solveNakedGroups() (bool, error) {
 	progress := false
 
-	for _, g := range b.groups {
+	for _, g := range b.Groups() {
 		unfilled := g.Unfilled()
 		if unfilled.Len() == 0 {
 			continue
@@ -291,13 +279,10 @@ func (b *Board) solveNakedGroups() (bool, error) {
 func (b *Board) solveBlockGroupIntersections() (bool, error) {
 	var progress bool
 
-	for block, intersects := range b.intersections {
+	for _, block := range b.blocks {
 		for _, val := range block.Possibilities() {
 			set := block.CanTake(val)
-			if set.Len() == 0 {
-				continue
-			}
-			for _, other := range intersects {
+			for _, other := range append(b.rows, b.cols...) {
 				if set.ContainedBy(other) {
 					for _, ci := range other.Indices() {
 						if !set.Contains(ci) {
