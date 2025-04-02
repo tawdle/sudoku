@@ -1,47 +1,74 @@
 package main
 
-type Group []*Cell
+type Group struct {
+	board *Board
+	cells []CellIndex // list of cells by index
+}
+
+func NewGroup(board *Board, ci []CellIndex) Group {
+	return Group{
+		board: board,
+		cells: ci,
+	}
+}
 
 func NewColumnGroup(board *Board, colIndex int) Group {
-	var g Group
+	cells := make([]CellIndex, 0, board.height)
 
 	for y := 0; y < board.height; y++ {
-		g = append(g, board.Cell(colIndex, y))
+		cells = append(cells, board.CellIndex(colIndex, y))
 	}
-	return g
+	return NewGroup(board, cells)
 }
 
 func NewRowGroup(board *Board, rowIndex int) Group {
-	var g Group
+	cells := make([]CellIndex, 0, board.width)
 
 	for x := 0; x < board.width; x++ {
-		g = append(g, board.Cell(x, rowIndex))
+		cells = append(cells, board.CellIndex(x, rowIndex))
 	}
-	return g
+	return NewGroup(board, cells)
 }
 
 func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) Group {
-	var g Group
+	cells := make([]CellIndex, 0, blockWidth*blockHeight)
 
 	for x := 0; x < blockWidth; x++ {
 		for y := 0; y < blockHeight; y++ {
-			g = append(g, board.Cell(blockX*blockWidth+x, blockY*blockHeight+y))
+			cells = append(cells, board.CellIndex(blockX*blockWidth+x, blockY*blockHeight+y))
 		}
 	}
-	return g
+	return NewGroup(board, cells)
+}
+
+func (g Group) Len() int {
+	return len(g.cells)
+}
+
+func (g Group) Indices() []CellIndex {
+	return g.cells
+}
+
+func (g Group) Cells() []*Cell {
+	cells := make([]*Cell, 0, len(g.cells))
+
+	for _, ci := range g.cells {
+		cells = append(cells, g.board.Cell(ci))
+	}
+	return cells
 }
 
 func (g Group) Prohibit(val int) {
-	for _, c := range g {
+	for _, c := range g.Cells() {
 		if !c.Filled() {
 			c.Prohibit(val)
 		}
 	}
 }
 
-func (g Group) Contains(c *Cell) bool {
-	for _, cell := range g {
-		if cell == c {
+func (g Group) Contains(ci CellIndex) bool {
+	for _, cell := range g.cells {
+		if cell == ci {
 			return true
 		}
 	}
@@ -49,31 +76,23 @@ func (g Group) Contains(c *Cell) bool {
 }
 
 func (g Group) Unfilled() Group {
-	count := 0
+	cells := make([]CellIndex, 0, len(g.cells))
 
-	for _, cell := range g {
-		if !cell.Filled() {
-			count++
+	for _, ci := range g.cells {
+		if !g.board.Cell(ci).Filled() {
+			cells = append(cells, ci)
 		}
 	}
 
-	unfilled := make([]*Cell, 0, count)
-
-	for _, cell := range g {
-		if !cell.Filled() {
-			unfilled = append(unfilled, cell)
-		}
-	}
-
-	return Group(unfilled)
+	return NewGroup(g.board, cells)
 }
 
-func (g Group) Possibilities(count int) []int {
+func (g Group) Possibilities() []int {
 	var result []int
-	mask := (1 << count) - 1
+	mask := (1 << g.board.height) - 1
 	var bits int
 
-	for _, c := range g {
+	for _, c := range g.Cells() {
 		bits = bits | (c.not ^ mask)
 	}
 
@@ -86,19 +105,19 @@ func (g Group) Possibilities(count int) []int {
 }
 
 func (g Group) CanTake(val int) Group {
-	var result Group
+	cells := make([]CellIndex, 0, len(g.cells))
 
-	for _, c := range g {
-		if c.CanTake(val) {
-			result = append(result, c)
+	for _, ci := range g.cells {
+		if g.board.Cell(ci).CanTake(val) {
+			cells = append(cells, ci)
 		}
 	}
-	return Group(result)
+	return NewGroup(g.board, cells)
 }
 
 func (g Group) ContainedBy(other Group) bool {
-	for _, c := range g {
-		if !within(c, other) {
+	for _, c := range g.cells {
+		if !other.Contains(c) {
 			return false
 		}
 	}
@@ -106,19 +125,19 @@ func (g Group) ContainedBy(other Group) bool {
 }
 
 func (g Group) GenerateCombinations(callback func(combo Group) error) error {
-	count := len(g)
+	count := len(g.cells)
 	max := 1 << count
 
 	for i := 0; i < max; i++ {
-		var list []*Cell
+		var list []CellIndex
 
-		for j, mask := 0, i; j < len(g) && mask > 0; j, mask = j+1, mask>>1 {
+		for j, mask := 0, i; j < len(g.cells) && mask > 0; j, mask = j+1, mask>>1 {
 			if mask&1 == 1 {
-				list = append(list, g[j])
+				list = append(list, g.cells[j])
 			}
 		}
 
-		if err := callback(Group(list)); err != nil {
+		if err := callback(NewGroup(g.board, list)); err != nil {
 			return err
 		}
 	}
@@ -126,20 +145,20 @@ func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 }
 
 func (g Group) Intersection(other Group) Group {
-	var result []*Cell
+	cells := make([]CellIndex, 0, len(g.cells))
 
-	for _, c := range g {
-		if within(c, other) {
-			result = append(result, c)
+	for _, c := range g.cells {
+		if other.Contains(c) {
+			cells = append(cells, c)
 		}
 	}
 
-	return Group(result)
+	return NewGroup(g.board, cells)
 }
 
 func (g Group) Intersects(other Group) bool {
-	for _, c := range g {
-		if within(c, other) {
+	for _, c := range g.cells {
+		if other.Contains(c) {
 			return true
 		}
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+type CellIndex int
+
 type Board struct {
 	cells         []Cell
 	width         int
@@ -67,30 +69,42 @@ func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Boa
 	return board
 }
 
-func (b *Board) Cell(x, y int) *Cell {
-	return &b.cells[y*b.width+x]
+func (b *Board) Cell(ci CellIndex) *Cell {
+	return &b.cells[ci]
+}
+
+func (b *Board) CellAt(x, y int) *Cell {
+	return &b.cells[b.CellIndex(x, y)]
+}
+
+func (b *Board) CellIndex(x, y int) CellIndex {
+	return CellIndex(x + y*b.width)
 }
 
 func (b *Board) Coords(c *Cell) (x int, y int) {
 	for i := range b.cells {
 		if c == &b.cells[i] {
-			return i % b.width, i / b.width
+			return b.IndexToCoords(CellIndex(i))
 		}
 	}
 	panic(fmt.Errorf("couldn't find cell %+v", c))
 }
 
+func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
+	return int(ci) % b.width, int(ci) / b.width
+}
+
 func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
-	cell := b.Cell(x, y)
+	ci := b.CellIndex(x, y)
 
-	if err := cell.SetValue(val); err != nil {
+	if err := b.CellAt(x, y).SetValue(val); err != nil {
 		return err
 	}
 
 	for _, g := range b.groups {
-		if g.Contains(cell) {
-			for _, c := range g {
+		if g.Contains(ci) {
+			for _, c := range g.Cells() {
 				if c.CanTake(val) {
 					x, y := b.Coords(c)
 					b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val)
@@ -102,7 +116,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 }
 
 func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
-	cell := b.Cell(x, y)
+	cell := b.CellAt(x, y)
 	if !cell.CanTake(val) {
 		return nil
 	}
@@ -121,7 +135,7 @@ func (b *Board) String() string {
 
 	for y := 0; y < b.height; y++ {
 		for x := 0; x < b.width; x++ {
-			cell := b.Cell(x, y)
+			cell := b.CellAt(x, y)
 			if val, ok := cell.GetValue(); ok {
 				fmt.Fprintf(&buf, "%d ", val)
 			} else {
@@ -202,9 +216,9 @@ func (b *Board) IsSolved() bool {
 	return true
 }
 
-func within(c *Cell, list []*Cell) bool {
+func within(ci int, list []int) bool {
 	for _, member := range list {
-		if c == member {
+		if ci == member {
 			return true
 		}
 	}
@@ -217,7 +231,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 	for _, g := range b.groups {
 		// make a map that collects that cells within the group that take a specific value
 		m := make(map[int][]*Cell)
-		for _, c := range g {
+		for _, c := range g.Cells() {
 			if c.Filled() {
 				continue
 			}
@@ -228,7 +242,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 		for val, cells := range m {
 			if len(cells) == 1 {
 				x, y := b.Coords(cells[0])
-				cell := b.Cell(x, y)
+				cell := b.CellAt(x, y)
 				if !cell.Filled() {
 					if err := b.SetValue("", "value can only appear in cell", x, y, val); err != nil {
 						return false, fmt.Errorf("solveHiddenSingles: %w", err)
@@ -246,17 +260,17 @@ func (b *Board) solveNakedGroups() (bool, error) {
 
 	for _, g := range b.groups {
 		unfilled := g.Unfilled()
-		if len(unfilled) == 0 {
+		if unfilled.Len() == 0 {
 			continue
 		}
 		unfilled.GenerateCombinations(func(combo Group) error {
-			possible := combo.Possibilities(b.height)
-			if len(possible) == len(combo) {
-				for _, c := range unfilled {
-					if !within(c, combo) {
-						x, y := b.Coords(c)
+			possible := combo.Possibilities()
+			if len(possible) == combo.Len() {
+				for _, ci := range unfilled.Indices() {
+					if !combo.Contains(ci) {
+						x, y := b.IndexToCoords(ci)
 						for _, val := range possible {
-							if c.CanTake(val) {
+							if b.Cell(ci).CanTake(val) {
 								if err := b.ProhibitValue("", "naked group", x, y, val); err != nil {
 									return err
 								}
@@ -278,17 +292,17 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 	var progress bool
 
 	for block, intersects := range b.intersections {
-		for _, val := range block.Possibilities(b.height) {
+		for _, val := range block.Possibilities() {
 			set := block.CanTake(val)
-			if len(set) == 0 {
+			if set.Len() == 0 {
 				continue
 			}
 			for _, other := range intersects {
 				if set.ContainedBy(other) {
-					for _, c := range other {
-						if !within(c, set) {
-							x, y := b.Coords(c)
-							if c.CanTake(val) {
+					for _, ci := range other.Indices() {
+						if !set.Contains(ci) {
+							x, y := b.IndexToCoords(ci)
+							if b.Cell(ci).CanTake(val) {
 								if err := b.ProhibitValue("", "block group intersection", x, y, val); err != nil {
 									return false, err
 								}
@@ -308,7 +322,7 @@ func (b *Board) Unsolved() string {
 
 	for y := 0; y < b.height; y++ {
 		for x := 0; x < b.width; x++ {
-			c := b.Cell(x, y)
+			c := b.CellAt(x, y)
 			if c.Filled() {
 				continue
 			}
