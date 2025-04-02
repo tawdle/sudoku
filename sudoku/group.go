@@ -128,7 +128,7 @@ func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 	count := len(g.cells)
 	max := 1 << count
 
-	for i := 0; i < max; i++ {
+	for i := 1; i < max; i++ {
 		var list []CellIndex
 
 		for j, mask := 0, i; j < len(g.cells) && mask > 0; j, mask = j+1, mask>>1 {
