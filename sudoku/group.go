@@ -16,18 +16,18 @@ func NewGroup(ci []CellIndex) Group {
 }
 
 func NewColumnGroup(board *Board, colIndex int) Group {
-	cells := make([]CellIndex, 0, board.height)
+	cells := make([]CellIndex, 0, board.size)
 
-	for y := 0; y < board.height; y++ {
+	for y := 0; y < board.size; y++ {
 		cells = append(cells, board.CellIndex(colIndex, y))
 	}
 	return NewGroup(cells)
 }
 
 func NewRowGroup(board *Board, rowIndex int) Group {
-	cells := make([]CellIndex, 0, board.width)
+	cells := make([]CellIndex, 0, board.size)
 
-	for x := 0; x < board.width; x++ {
+	for x := 0; x < board.size; x++ {
 		cells = append(cells, board.CellIndex(x, rowIndex))
 	}
 	return NewGroup(cells)

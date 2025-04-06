@@ -13,8 +13,7 @@ type CellIndex int
 
 type Board struct {
 	cells       []Cell
-	width       int
-	height      int
+	size        int
 	blockWidth  int
 	blockHeight int
 	blocks      []Group
@@ -22,28 +21,30 @@ type Board struct {
 	rows        []Group
 }
 
-func NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert int) *Board {
+// Creates an empty sudoku board with blocks of the specified
+// dimension. Note that these dimensions determine the overall
+// layout of the board.
+func NewBoard(blockWidth, blockHeight int) *Board {
 	// first, create all our cells
 	board := &Board{}
-	board.width = blockWidth * blockCountHoriz
-	board.height = blockHeight * blockCountVert
+	board.size = blockWidth * blockHeight
 	board.blockWidth = blockWidth
 	board.blockHeight = blockHeight
-	board.cells = make([]Cell, board.width*board.height)
+	board.cells = make([]Cell, board.size*board.size)
 
 	var blocks, cols, rows []Group
 
-	for x := 0; x < blockCountHoriz; x++ {
-		for y := 0; y < blockCountVert; y++ {
+	for x := 0; x < blockHeight; x++ {
+		for y := 0; y < blockWidth; y++ {
 			blocks = append(blocks, NewBlockGroup(board, x, y, blockWidth, blockHeight))
 		}
 	}
 
-	for x := 0; x < board.width; x++ {
+	for x := 0; x < board.size; x++ {
 		cols = append(cols, NewColumnGroup(board, x))
 	}
 
-	for y := 0; y < board.height; y++ {
+	for y := 0; y < board.size; y++ {
 		rows = append(rows, NewRowGroup(board, y))
 	}
 
@@ -77,7 +78,7 @@ func Fill(board *Board) (*Board, error) {
 	fillNextCell = func(board *Board) (*Board, error) {
 		// Pick an unfilled cell randomly
 		ci := board.Unfilled().PickOne()
-		candidates := board.Cell(ci).Possibilities(board.height)
+		candidates := board.Cell(ci).Possibilities(board.size)
 		rand.Shuffle(len(candidates), func(x, y int) { candidates[x], candidates[y] = candidates[y], candidates[x] })
 		for _, candidate := range candidates {
 			if nb, err := tryCandidate(board.Duplicate(), ci, candidate); err == nil {
@@ -113,8 +114,7 @@ func (b *Board) Duplicate() *Board {
 
 	nb.cells = make([]Cell, len(b.cells))
 	copy(nb.cells, b.cells)
-	nb.width = b.width
-	nb.height = b.height
+	nb.size = b.size
 	nb.blockWidth = b.blockWidth
 	nb.blockHeight = b.blockHeight
 	nb.blocks = make([]Group, len(b.blocks))
@@ -127,7 +127,7 @@ func (b *Board) Duplicate() *Board {
 }
 
 func (b *Board) MaxVal() int {
-	return b.width
+	return b.size
 }
 
 func (b *Board) Cell(ci CellIndex) *Cell {
@@ -139,7 +139,7 @@ func (b *Board) CellAt(x, y int) *Cell {
 }
 
 func (b *Board) CellIndex(x, y int) CellIndex {
-	return CellIndex(x + y*b.width)
+	return CellIndex(x + y*b.size)
 }
 
 func (b *Board) Coords(c *Cell) (x int, y int) {
@@ -152,7 +152,7 @@ func (b *Board) Coords(c *Cell) (x int, y int) {
 }
 
 func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
-	return int(ci) % b.width, int(ci) / b.width
+	return int(ci) % b.size, int(ci) / b.size
 }
 
 func (b Board) Groups() []Group {
@@ -193,7 +193,7 @@ func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 
 	fmt.Printf("%s%s: (%d,%d) cannot be %d\n", depth, reason, x, y, val)
 	cell.Prohibit(val)
-	if remaining := cell.Possibilities(b.height); len(remaining) == 1 {
+	if remaining := cell.Possibilities(b.size); len(remaining) == 1 {
 		return b.SetValue(depth+" ", "only one left after prohibition", x, y, remaining[0])
 	}
 
@@ -203,8 +203,8 @@ func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 func (b *Board) String() string {
 	var buf bytes.Buffer
 
-	for y := 0; y < b.height; y++ {
-		for x := 0; x < b.width; x++ {
+	for y := 0; y < b.size; y++ {
+		for x := 0; x < b.size; x++ {
 			cell := b.CellAt(x, y)
 			if val, ok := cell.GetValue(); ok {
 				fmt.Fprintf(&buf, "%d ", val)
@@ -223,9 +223,9 @@ func (b *Board) String() string {
 	return buf.String()
 }
 
-func NewBoardFromBuffer(blockWidth, blockHeight, blockCountHoriz, blockCountVert int, input io.Reader) (*Board, error) {
+func NewBoardFromBuffer(blockWidth, blockHeight int, input io.Reader) (*Board, error) {
 	scanner := bufio.NewScanner(input)
-	board := NewBoard(blockWidth, blockHeight, blockCountHoriz, blockCountVert)
+	board := NewBoard(blockWidth, blockHeight)
 	y := 0
 
 	for scanner.Scan() {
@@ -315,7 +315,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 			if c.Filled() {
 				continue
 			}
-			for _, val := range c.Possibilities(b.height) {
+			for _, val := range c.Possibilities(b.size) {
 				m[val] = append(m[val], c)
 			}
 		}
@@ -397,13 +397,13 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 func (b *Board) Unsolved() string {
 	var buf bytes.Buffer
 
-	for y := 0; y < b.height; y++ {
-		for x := 0; x < b.width; x++ {
+	for y := 0; y < b.size; y++ {
+		for x := 0; x < b.size; x++ {
 			c := b.CellAt(x, y)
 			if c.Filled() {
 				continue
 			}
-			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Possibilities(b.height))
+			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Possibilities(b.size))
 		}
 	}
 	return buf.String()

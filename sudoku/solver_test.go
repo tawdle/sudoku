@@ -127,7 +127,7 @@ func TestSolver(t *testing.T) {
 
 	for _, c := range cases {
 		fmt.Printf("trying to solve %s...\n", c.title)
-		board, err := NewBoardFromBuffer(3, 3, 3, 3, strings.NewReader(c.puzzle))
+		board, err := NewBoardFromBuffer(3, 3, strings.NewReader(c.puzzle))
 		assert.NoError(err)
 		err = board.Solve()
 		assert.NoError(err)
@@ -136,6 +136,6 @@ func TestSolver(t *testing.T) {
 }
 
 func TestDuplicate(t *testing.T) {
-	board := NewBoard(3, 3, 3, 3)
+	board := NewBoard(3, 3)
 	board.Duplicate()
 }

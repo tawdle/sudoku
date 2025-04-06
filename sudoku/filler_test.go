@@ -9,7 +9,7 @@ import (
 
 func TestFiller(t *testing.T) {
 	assert := assert.New(t)
-	solution, err := Fill(NewBoard(3, 3, 3, 3))
+	solution, err := Fill(NewBoard(3, 3))
 	assert.NoError(err)
 	assert.True(solution.IsSolved())
 
