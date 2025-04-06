@@ -134,3 +134,8 @@ func TestSolver(t *testing.T) {
 		assert.True(board.IsSolved())
 	}
 }
+
+func TestDuplicate(t *testing.T) {
+	board := NewBoard(3, 3, 3, 3)
+	board.Duplicate()
+}

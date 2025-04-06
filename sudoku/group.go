@@ -1,13 +1,16 @@
 package main
 
+import (
+	"fmt"
+	"math/rand"
+)
+
 type Group struct {
-	board *Board
 	cells []CellIndex // list of cells by index
 }
 
-func NewGroup(board *Board, ci []CellIndex) Group {
+func NewGroup(ci []CellIndex) Group {
 	return Group{
-		board: board,
 		cells: ci,
 	}
 }
@@ -18,7 +21,7 @@ func NewColumnGroup(board *Board, colIndex int) Group {
 	for y := 0; y < board.height; y++ {
 		cells = append(cells, board.CellIndex(colIndex, y))
 	}
-	return NewGroup(board, cells)
+	return NewGroup(cells)
 }
 
 func NewRowGroup(board *Board, rowIndex int) Group {
@@ -27,7 +30,7 @@ func NewRowGroup(board *Board, rowIndex int) Group {
 	for x := 0; x < board.width; x++ {
 		cells = append(cells, board.CellIndex(x, rowIndex))
 	}
-	return NewGroup(board, cells)
+	return NewGroup(cells)
 }
 
 func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) Group {
@@ -38,7 +41,7 @@ func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) Gr
 			cells = append(cells, board.CellIndex(blockX*blockWidth+x, blockY*blockHeight+y))
 		}
 	}
-	return NewGroup(board, cells)
+	return NewGroup(cells)
 }
 
 func (g Group) Len() int {
@@ -49,17 +52,17 @@ func (g Group) Indices() []CellIndex {
 	return g.cells
 }
 
-func (g Group) Cells() []*Cell {
+func (g Group) Cells(b *Board) []*Cell {
 	cells := make([]*Cell, 0, len(g.cells))
 
 	for _, ci := range g.cells {
-		cells = append(cells, g.board.Cell(ci))
+		cells = append(cells, b.Cell(ci))
 	}
 	return cells
 }
 
-func (g Group) Prohibit(val int) {
-	for _, c := range g.Cells() {
+func (g Group) Prohibit(val int, b *Board) {
+	for _, c := range g.Cells(b) {
 		if !c.Filled() {
 			c.Prohibit(val)
 		}
@@ -75,24 +78,24 @@ func (g Group) Contains(ci CellIndex) bool {
 	return false
 }
 
-func (g Group) Unfilled() Group {
+func (g Group) Unfilled(b *Board) Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, ci := range g.cells {
-		if !g.board.Cell(ci).Filled() {
+		if !b.Cell(ci).Filled() {
 			cells = append(cells, ci)
 		}
 	}
 
-	return NewGroup(g.board, cells)
+	return NewGroup(cells)
 }
 
-func (g Group) Possibilities() []int {
+func (g Group) Possibilities(b *Board) []int {
 	var result []int
-	mask := (1 << g.board.height) - 1
+	mask := (1 << b.MaxVal()) - 1
 	var bits int
 
-	for _, c := range g.Cells() {
+	for _, c := range g.Cells(b) {
 		bits = bits | (c.not ^ mask)
 	}
 
@@ -104,15 +107,15 @@ func (g Group) Possibilities() []int {
 	return result
 }
 
-func (g Group) CanTake(val int) Group {
+func (g Group) CanTake(val int, b *Board) Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, ci := range g.cells {
-		if g.board.Cell(ci).CanTake(val) {
+		if b.Cell(ci).CanTake(val) {
 			cells = append(cells, ci)
 		}
 	}
-	return NewGroup(g.board, cells)
+	return NewGroup(cells)
 }
 
 func (g Group) ContainedBy(other Group) bool {
@@ -137,7 +140,7 @@ func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 			}
 		}
 
-		if err := callback(NewGroup(g.board, list)); err != nil {
+		if err := callback(NewGroup(list)); err != nil {
 			return err
 		}
 	}
@@ -153,7 +156,7 @@ func (g Group) Intersection(other Group) Group {
 		}
 	}
 
-	return NewGroup(g.board, cells)
+	return NewGroup(cells)
 }
 
 func (g Group) Intersects(other Group) bool {
@@ -164,4 +167,11 @@ func (g Group) Intersects(other Group) bool {
 	}
 
 	return false
+}
+
+func (g Group) PickOne() CellIndex {
+	if len(g.cells) == 0 {
+		panic(fmt.Errorf("can't pick one from an empty group"))
+	}
+	return g.cells[rand.Intn(len(g.cells))]
 }

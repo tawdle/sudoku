@@ -32,7 +32,7 @@ func (c *Cell) Prohibit(val int) error {
 
 func (c *Cell) CanTake(val int) bool {
 	if c.Filled() {
-		return false
+		return c.value == val
 	}
 	return c.not&(1<<(val-1)) == 0
 }
