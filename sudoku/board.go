@@ -163,6 +163,11 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
 	ci := b.CellIndex(x, y)
 
+	// already set to the given value? just exit
+	if v, set := b.Cell(ci).GetValue(); set && val == v {
+		return nil
+	}
+
 	if !b.Cell(ci).CanTake(val) {
 		x, y := b.IndexToCoords(ci)
 		return fmt.Errorf("tried to set value on %d not legal at (%d,%d)", val, x, y)
