@@ -9,13 +9,13 @@ type Group struct {
 	cells []CellIndex // list of cells by index
 }
 
-func NewGroup(ci []CellIndex) Group {
-	return Group{
+func NewGroup(ci []CellIndex) *Group {
+	return &Group{
 		cells: ci,
 	}
 }
 
-func NewColumnGroup(board *Board, colIndex int) Group {
+func NewColumnGroup(board *Board, colIndex int) *Group {
 	cells := make([]CellIndex, 0, board.size)
 
 	for y := 0; y < board.size; y++ {
@@ -24,7 +24,7 @@ func NewColumnGroup(board *Board, colIndex int) Group {
 	return NewGroup(cells)
 }
 
-func NewRowGroup(board *Board, rowIndex int) Group {
+func NewRowGroup(board *Board, rowIndex int) *Group {
 	cells := make([]CellIndex, 0, board.size)
 
 	for x := 0; x < board.size; x++ {
@@ -33,7 +33,7 @@ func NewRowGroup(board *Board, rowIndex int) Group {
 	return NewGroup(cells)
 }
 
-func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) Group {
+func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) *Group {
 	cells := make([]CellIndex, 0, blockWidth*blockHeight)
 
 	for x := 0; x < blockWidth; x++ {
@@ -44,15 +44,15 @@ func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) Gr
 	return NewGroup(cells)
 }
 
-func (g Group) Len() int {
+func (g *Group) Len() int {
 	return len(g.cells)
 }
 
-func (g Group) Indices() []CellIndex {
+func (g *Group) Indices() []CellIndex {
 	return g.cells
 }
 
-func (g Group) Cells(b *Board) []*Cell {
+func (g *Group) Cells(b *Board) []*Cell {
 	cells := make([]*Cell, 0, len(g.cells))
 
 	for _, ci := range g.cells {
@@ -61,7 +61,7 @@ func (g Group) Cells(b *Board) []*Cell {
 	return cells
 }
 
-func (g Group) Prohibit(val int, b *Board) {
+func (g *Group) Prohibit(val int, b *Board) {
 	for _, c := range g.Cells(b) {
 		if !c.Filled() {
 			c.Prohibit(val)
@@ -69,7 +69,7 @@ func (g Group) Prohibit(val int, b *Board) {
 	}
 }
 
-func (g Group) Contains(ci CellIndex) bool {
+func (g *Group) Contains(ci CellIndex) bool {
 	for _, cell := range g.cells {
 		if cell == ci {
 			return true
@@ -78,7 +78,7 @@ func (g Group) Contains(ci CellIndex) bool {
 	return false
 }
 
-func (g Group) Unfilled(b *Board) Group {
+func (g *Group) Unfilled(b *Board) *Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, ci := range g.cells {
@@ -90,7 +90,7 @@ func (g Group) Unfilled(b *Board) Group {
 	return NewGroup(cells)
 }
 
-func (g Group) Possibilities(b *Board) []int {
+func (g *Group) Possibilities(b *Board) []int {
 	var result []int
 	mask := (1 << b.MaxVal()) - 1
 	var bits int
@@ -107,7 +107,7 @@ func (g Group) Possibilities(b *Board) []int {
 	return result
 }
 
-func (g Group) CanTake(val int, b *Board) Group {
+func (g *Group) CanTake(val int, b *Board) *Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, ci := range g.cells {
@@ -118,16 +118,17 @@ func (g Group) CanTake(val int, b *Board) Group {
 	return NewGroup(cells)
 }
 
-func (g Group) ContainedBy(other Group) bool {
+func (g *Group) ContainedBy(other *Group) bool {
 	for _, c := range g.cells {
 		if !other.Contains(c) {
 			return false
 		}
 	}
+	fmt.Printf("group %v contained by group %v\n", g, other)
 	return true
 }
 
-func (g Group) GenerateCombinations(callback func(combo Group) error) error {
+func (g *Group) GenerateCombinations(callback func(combo *Group) error) error {
 	count := len(g.cells)
 	max := 1 << count
 
@@ -147,7 +148,7 @@ func (g Group) GenerateCombinations(callback func(combo Group) error) error {
 	return nil
 }
 
-func (g Group) Intersection(other Group) Group {
+func (g *Group) Intersection(other Group) *Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, c := range g.cells {
@@ -159,7 +160,7 @@ func (g Group) Intersection(other Group) Group {
 	return NewGroup(cells)
 }
 
-func (g Group) Intersects(other Group) bool {
+func (g *Group) Intersects(other Group) bool {
 	for _, c := range g.cells {
 		if other.Contains(c) {
 			return true

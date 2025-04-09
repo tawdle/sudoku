@@ -16,9 +16,9 @@ type Board struct {
 	size        int
 	blockWidth  int
 	blockHeight int
-	blocks      []Group
-	cols        []Group
-	rows        []Group
+	blocks      []*Group
+	cols        []*Group
+	rows        []*Group
 }
 
 // Creates an empty sudoku board with blocks of the specified
@@ -32,7 +32,7 @@ func NewBoard(blockWidth, blockHeight int) *Board {
 	board.blockHeight = blockHeight
 	board.cells = make([]Cell, board.size*board.size)
 
-	var blocks, cols, rows []Group
+	var blocks, cols, rows []*Group
 
 	for x := 0; x < blockHeight; x++ {
 		for y := 0; y < blockWidth; y++ {
@@ -117,9 +117,9 @@ func (b *Board) Duplicate() *Board {
 	nb.size = b.size
 	nb.blockWidth = b.blockWidth
 	nb.blockHeight = b.blockHeight
-	nb.blocks = make([]Group, len(b.blocks))
-	nb.cols = make([]Group, len(b.cols))
-	nb.rows = make([]Group, len(b.rows))
+	nb.blocks = make([]*Group, len(b.blocks))
+	nb.cols = make([]*Group, len(b.cols))
+	nb.rows = make([]*Group, len(b.rows))
 	copy(nb.blocks, b.blocks)
 	copy(nb.cols, b.cols)
 	copy(nb.rows, b.rows)
@@ -155,7 +155,7 @@ func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
 	return int(ci) % b.size, int(ci) / b.size
 }
 
-func (b Board) Groups() []Group {
+func (b Board) Groups() []*Group {
 	return append(b.blocks, append(b.cols, b.rows...)...)
 }
 
@@ -286,7 +286,7 @@ func (b *Board) IsSolved() bool {
 	return true
 }
 
-func (b *Board) Unfilled() Group {
+func (b *Board) Unfilled() *Group {
 	var cells []CellIndex
 	for ci, c := range b.cells {
 		if _, set := c.GetValue(); !set {
@@ -343,7 +343,7 @@ func (b *Board) solveNakedGroups() (bool, error) {
 		if unfilled.Len() == 0 {
 			continue
 		}
-		unfilled.GenerateCombinations(func(combo Group) error {
+		unfilled.GenerateCombinations(func(combo *Group) error {
 			possible := combo.Possibilities(b)
 			if len(possible) == combo.Len() {
 				for _, ci := range unfilled.Indices() {
