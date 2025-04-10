@@ -24,7 +24,10 @@ func (c *Cell) SetValue(val int) error {
 
 func (c *Cell) Prohibit(val int) error {
 	if c.Filled() {
-		return fmt.Errorf("tried to prohibit value in cell that already has one")
+		if val != c.value {
+			return fmt.Errorf("tried to prohibit value in cell that already has one")
+		}
+		return nil
 	}
 	c.not |= (1 << (val - 1))
 	return nil
@@ -38,6 +41,10 @@ func (c *Cell) CanTake(val int) bool {
 }
 
 func (c *Cell) Filled() bool {
+	return c.value != 0
+}
+
+func (c *Cell) IsSet() bool {
 	return c.value != 0
 }
 

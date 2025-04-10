@@ -96,7 +96,9 @@ func (g *Group) Possibilities(b *Board) []int {
 	var bits int
 
 	for _, c := range g.Cells(b) {
-		bits = bits | (c.not ^ mask)
+		if !c.IsSet() {
+			bits = bits | (c.not ^ mask)
+		}
 	}
 
 	for i := 1; bits > 0; i, bits = i+1, bits>>1 {

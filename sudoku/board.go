@@ -160,7 +160,6 @@ func (b Board) Groups() []*Group {
 }
 
 func (b *Board) SetValue(depth, reason string, x, y, val int) error {
-	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
 	ci := b.CellIndex(x, y)
 
 	// already set to the given value? just exit
@@ -173,21 +172,29 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 		return fmt.Errorf("tried to set value on %d not legal at (%d,%d)", val, x, y)
 	}
 
+	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
 	if err := b.Cell(ci).SetValue(val); err != nil {
+		return err
+	}
+
+	if err := b.IsValid(); err != nil {
 		return err
 	}
 
 	for _, g := range b.Groups() {
 		if g.Contains(ci) {
 			for _, i := range g.Indices() {
-				if b.Cell(i).CanTake(val) {
+				if i != ci && b.Cell(i).CanTake(val) {
 					x, y := b.IndexToCoords(i)
-					b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val)
+					if err := b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
-	return nil
+
+	return b.IsValid()
 }
 
 func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
@@ -197,7 +204,14 @@ func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 	}
 
 	fmt.Printf("%s%s: (%d,%d) cannot be %d\n", depth, reason, x, y, val)
-	cell.Prohibit(val)
+	if err := cell.Prohibit(val); err != nil {
+		return err
+	}
+
+	if err := b.IsValid(); err != nil {
+		return err
+	}
+
 	if remaining := cell.Possibilities(b.size); len(remaining) == 1 {
 		return b.SetValue(depth+" ", "only one left after prohibition", x, y, remaining[0])
 	}
@@ -272,13 +286,18 @@ func (b *Board) Solve() error {
 	}
 
 	if b.IsSolved() {
-		fmt.Printf("\nsolved!\n")
+		if err := b.IsValid(); err == nil {
+			fmt.Printf("\nsolved!\n")
+		} else {
+			fmt.Printf("solved but solution is invalid! %s\n", err)
+		}
 	} else {
 		fmt.Printf("\ndidn't solve!\n")
 		fmt.Println(b.Unsolved())
 	}
 
 	fmt.Println(b.String())
+
 	return nil
 }
 
@@ -348,7 +367,8 @@ func (b *Board) solveNakedGroups() (bool, error) {
 		if unfilled.Len() == 0 {
 			continue
 		}
-		unfilled.GenerateCombinations(func(combo *Group) error {
+		err := unfilled.GenerateCombinations(func(combo *Group) error {
+			combo = combo.Unfilled(b) // filter again here because cells may have been filled since we started
 			possible := combo.Possibilities(b)
 			if len(possible) == combo.Len() {
 				for _, ci := range unfilled.Indices() {
@@ -367,6 +387,9 @@ func (b *Board) solveNakedGroups() (bool, error) {
 			}
 			return nil
 		})
+		if err != nil {
+			return false, err
+		}
 	}
 	return progress, nil
 }
@@ -379,12 +402,15 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 	for _, block := range b.blocks {
 		for _, val := range block.Possibilities(b) {
 			set := block.CanTake(val, b)
+			if set.Len() < 2 {
+				continue
+			}
 			for _, other := range append(b.rows, b.cols...) {
 				if set.ContainedBy(other) {
 					for _, ci := range other.Indices() {
 						if !set.Contains(ci) {
-							x, y := b.IndexToCoords(ci)
 							if b.Cell(ci).CanTake(val) {
+								x, y := b.IndexToCoords(ci)
 								if err := b.ProhibitValue("", "block group intersection", x, y, val); err != nil {
 									return false, err
 								}
@@ -414,15 +440,39 @@ func (b *Board) Unsolved() string {
 	return buf.String()
 }
 
-func (b *Board) Validate() {
+func (b *Board) IsValid() error {
 	for _, g := range append(b.blocks, append(b.rows, b.cols...)...) {
-		seen := make(map[int]struct{})
-		for _, c := range g.Cells(b) {
+		seen := make(map[int]CellIndex)
+		for _, ci := range g.Indices() {
+			c := b.Cell(ci)
 			if v, set := c.GetValue(); set {
 				if _, found := seen[v]; found {
-					panic(fmt.Errorf("invalid board; duplicate %d found", v))
+					x1, y1 := b.IndexToCoords(ci)
+					x2, y2 := b.IndexToCoords(seen[v])
+					fmt.Println("invalid board detected")
+					return fmt.Errorf("(%d,%d) and (%d,%d) are both %d", x1, y1, x2, y2, v)
+				} else {
+					seen[v] = ci
 				}
 			}
 		}
+	}
+
+	for ci, c := range b.cells {
+		if !c.IsSet() {
+			if len(c.Possibilities(b.MaxVal())) == 0 {
+				fmt.Println("invalid board detected")
+				x, y := b.IndexToCoords(CellIndex(ci))
+				return fmt.Errorf("(%d,%d) is unfilled and has no candidates", x, y)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *Board) Validate() {
+	if err := b.IsValid(); err != nil {
+		panic(fmt.Errorf("invalid board: %e", err))
 	}
 }
