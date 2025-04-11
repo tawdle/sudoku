@@ -16,18 +16,18 @@ func NewGroup(ci []CellIndex) *Group {
 }
 
 func NewColumnGroup(board *Board, colIndex int) *Group {
-	cells := make([]CellIndex, 0, board.size)
+	cells := make([]CellIndex, 0, board.Size())
 
-	for y := 0; y < board.size; y++ {
+	for y := 0; y < board.Size(); y++ {
 		cells = append(cells, board.CellIndex(colIndex, y))
 	}
 	return NewGroup(cells)
 }
 
 func NewRowGroup(board *Board, rowIndex int) *Group {
-	cells := make([]CellIndex, 0, board.size)
+	cells := make([]CellIndex, 0, board.Size())
 
-	for x := 0; x < board.size; x++ {
+	for x := 0; x < board.Size(); x++ {
 		cells = append(cells, board.CellIndex(x, rowIndex))
 	}
 	return NewGroup(cells)
@@ -78,6 +78,15 @@ func (g *Group) Contains(ci CellIndex) bool {
 	return false
 }
 
+func (g *Group) FindSetValue(value int, b *Board) (CellIndex, bool) {
+	for _, ci := range g.cells {
+		if val, set := b.Cell(ci).GetValue(); set && val == value {
+			return ci, true
+		}
+	}
+	return 0, false
+}
+
 func (g *Group) Unfilled(b *Board) *Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
@@ -92,7 +101,7 @@ func (g *Group) Unfilled(b *Board) *Group {
 
 func (g *Group) Possibilities(b *Board) []int {
 	var result []int
-	mask := (1 << b.MaxVal()) - 1
+	mask := (1 << b.Size()) - 1
 	var bits int
 
 	for _, c := range g.Cells(b) {
@@ -126,7 +135,6 @@ func (g *Group) ContainedBy(other *Group) bool {
 			return false
 		}
 	}
-	fmt.Printf("group %v contained by group %v\n", g, other)
 	return true
 }
 
@@ -172,9 +180,32 @@ func (g *Group) Intersects(other Group) bool {
 	return false
 }
 
-func (g Group) PickOne() CellIndex {
+func (g *Group) SetValues(b *Board) []int {
+	seen := make(map[int]struct{})
+
+	for _, ci := range g.cells {
+		if val, set := b.Cell(ci).GetValue(); set {
+			seen[val] = struct{}{}
+		}
+	}
+	var result []int
+
+	for val, _ := range seen {
+		result = append(result, val)
+	}
+	return result
+}
+
+func (g *Group) PickOne() CellIndex {
 	if len(g.cells) == 0 {
 		panic(fmt.Errorf("can't pick one from an empty group"))
 	}
 	return g.cells[rand.Intn(len(g.cells))]
+}
+
+func (g *Group) Shuffled() *Group {
+	rand.Shuffle(len(g.cells), func(x, y int) {
+		g.cells[x], g.cells[y] = g.cells[y], g.cells[x]
+	})
+	return NewGroup(g.cells)
 }

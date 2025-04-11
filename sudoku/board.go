@@ -11,8 +11,7 @@ import (
 
 type CellIndex int
 
-type Board struct {
-	cells       []Cell
+type BoardSpec struct {
 	size        int
 	blockWidth  int
 	blockHeight int
@@ -21,36 +20,45 @@ type Board struct {
 	rows        []*Group
 }
 
+type Board struct {
+	cells []Cell
+	spec  *BoardSpec
+	quiet bool
+}
+
 // Creates an empty sudoku board with blocks of the specified
 // dimension. Note that these dimensions determine the overall
 // layout of the board.
 func NewBoard(blockWidth, blockHeight int) *Board {
 	// first, create all our cells
 	board := &Board{}
-	board.size = blockWidth * blockHeight
-	board.blockWidth = blockWidth
-	board.blockHeight = blockHeight
-	board.cells = make([]Cell, board.size*board.size)
+	spec := &BoardSpec{}
+	board.spec = spec
+
+	spec.size = blockWidth * blockHeight
+	spec.blockWidth = blockWidth
+	spec.blockHeight = blockHeight
+	board.cells = make([]Cell, spec.size*spec.size)
 
 	var blocks, cols, rows []*Group
 
-	for x := 0; x < blockHeight; x++ {
-		for y := 0; y < blockWidth; y++ {
+	for y := 0; y < blockWidth; y++ {
+		for x := 0; x < blockHeight; x++ {
 			blocks = append(blocks, NewBlockGroup(board, x, y, blockWidth, blockHeight))
 		}
 	}
 
-	for x := 0; x < board.size; x++ {
+	for x := 0; x < spec.size; x++ {
 		cols = append(cols, NewColumnGroup(board, x))
 	}
 
-	for y := 0; y < board.size; y++ {
+	for y := 0; y < spec.size; y++ {
 		rows = append(rows, NewRowGroup(board, y))
 	}
 
-	board.blocks = blocks
-	board.cols = cols
-	board.rows = rows
+	spec.blocks = blocks
+	spec.cols = cols
+	spec.rows = rows
 
 	return board
 }
@@ -78,7 +86,7 @@ func Fill(board *Board) (*Board, error) {
 	fillNextCell = func(board *Board) (*Board, error) {
 		// Pick an unfilled cell randomly
 		ci := board.Unfilled().PickOne()
-		candidates := board.Cell(ci).Possibilities(board.size)
+		candidates := board.Cell(ci).Possibilities(board.Size())
 		rand.Shuffle(len(candidates), func(x, y int) { candidates[x], candidates[y] = candidates[y], candidates[x] })
 		for _, candidate := range candidates {
 			if nb, err := tryCandidate(board.Duplicate(), ci, candidate); err == nil {
@@ -90,6 +98,9 @@ func Fill(board *Board) (*Board, error) {
 	}
 
 	tryCandidate = func(board *Board, ci CellIndex, value int) (*Board, error) {
+		if err := board.IsValid(); err != nil {
+			return nil, err
+		}
 		x, y := board.IndexToCoords(ci)
 		if err := board.SetValue("", "random pick", x, y, value); err != nil {
 			return nil, err
@@ -114,20 +125,13 @@ func (b *Board) Duplicate() *Board {
 
 	nb.cells = make([]Cell, len(b.cells))
 	copy(nb.cells, b.cells)
-	nb.size = b.size
-	nb.blockWidth = b.blockWidth
-	nb.blockHeight = b.blockHeight
-	nb.blocks = make([]*Group, len(b.blocks))
-	nb.cols = make([]*Group, len(b.cols))
-	nb.rows = make([]*Group, len(b.rows))
-	copy(nb.blocks, b.blocks)
-	copy(nb.cols, b.cols)
-	copy(nb.rows, b.rows)
+	nb.spec = b.spec
+	nb.quiet = b.quiet
 	return &nb
 }
 
-func (b *Board) MaxVal() int {
-	return b.size
+func (b *Board) Size() int {
+	return b.spec.size
 }
 
 func (b *Board) Cell(ci CellIndex) *Cell {
@@ -139,7 +143,7 @@ func (b *Board) CellAt(x, y int) *Cell {
 }
 
 func (b *Board) CellIndex(x, y int) CellIndex {
-	return CellIndex(x + y*b.size)
+	return CellIndex(x + y*b.Size())
 }
 
 func (b *Board) Coords(c *Cell) (x int, y int) {
@@ -152,11 +156,22 @@ func (b *Board) Coords(c *Cell) (x int, y int) {
 }
 
 func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
-	return int(ci) % b.size, int(ci) / b.size
+	return int(ci) % b.Size(), int(ci) / b.Size()
 }
 
 func (b Board) Groups() []*Group {
-	return append(b.blocks, append(b.cols, b.rows...)...)
+	return append(b.spec.blocks, append(b.spec.cols, b.spec.rows...)...)
+}
+
+func (b *Board) GroupsContaining(ci CellIndex) []*Group {
+	result := make([]*Group, 0, 3)
+
+	x, y := b.IndexToCoords(ci)
+
+	result = append(result, b.spec.cols[x])
+	result = append(result, b.spec.rows[y])
+	result = append(result, b.spec.blocks[x/b.spec.blockWidth+y/b.spec.blockHeight*b.spec.blockHeight])
+	return result
 }
 
 func (b *Board) SetValue(depth, reason string, x, y, val int) error {
@@ -172,16 +187,18 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 		return fmt.Errorf("tried to set value on %d not legal at (%d,%d)", val, x, y)
 	}
 
-	fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
+	if !b.quiet {
+		fmt.Printf("%s%s: (%d,%d) -> %d\n", depth, reason, x, y, val)
+	}
 	if err := b.Cell(ci).SetValue(val); err != nil {
 		return err
 	}
 
-	if err := b.IsValid(); err != nil {
-		return err
-	}
-
-	for _, g := range b.Groups() {
+	// In order to avoid corruption of the board, we need to handle
+	// prohibition in two steps: first, we mark all the effected cells,
+	// then, we deal with the fallout from any of those markings
+	var marked []CellIndex
+	for _, g := range b.GroupsContaining(ci) {
 		if g.Contains(ci) {
 			for _, i := range g.Indices() {
 				if i != ci && b.Cell(i).CanTake(val) {
@@ -189,31 +206,57 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 					if err := b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val); err != nil {
 						return err
 					}
+					marked = append(marked, ci)
+				} else {
+					// this won't impact anything about how the puzzle gets solved,
+					// but it does ensure our candidate lists remain in sync
+					b.Cell(i).Prohibit(val)
 				}
 			}
 		}
 	}
 
+	for _, ci := range marked {
+		candidates := b.Cell(ci).Possibilities(b.Size())
+		if len(candidates) == 1 {
+			x, y := b.IndexToCoords(ci)
+			if err := b.SetValue(depth+" ", "only one left after prohibition", x, y, candidates[0]); err != nil {
+				return err
+			}
+		}
+	}
 	return b.IsValid()
+}
+
+// UnsetValue clears the value in the specified cell then
+// resets and recalculates prohibition/candidate lists each
+// impacted cell.
+func (b *Board) UnsetValue(ci CellIndex) {
+	cell := b.Cell(ci)
+	if _, isSet := cell.GetValue(); isSet {
+		cell.value = 0
+		for _, g := range b.GroupsContaining(ci) {
+			for _, oci := range g.Indices() {
+				b.Cell(oci).ClearProhibitions()
+				for _, og := range b.GroupsContaining(oci) {
+					for _, val := range og.SetValues(b) {
+						b.Cell(oci).Prohibit(val)
+					}
+				}
+			}
+		}
+	}
 }
 
 func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 	cell := b.CellAt(x, y)
-	if !cell.CanTake(val) {
-		return nil
+	if cell.CanTake(val) {
+		if !b.quiet {
+			fmt.Printf("%s%s: (%d,%d) cannot be %d\n", depth, reason, x, y, val)
+		}
 	}
-
-	fmt.Printf("%s%s: (%d,%d) cannot be %d\n", depth, reason, x, y, val)
 	if err := cell.Prohibit(val); err != nil {
 		return err
-	}
-
-	if err := b.IsValid(); err != nil {
-		return err
-	}
-
-	if remaining := cell.Possibilities(b.size); len(remaining) == 1 {
-		return b.SetValue(depth+" ", "only one left after prohibition", x, y, remaining[0])
 	}
 
 	return nil
@@ -222,19 +265,19 @@ func (b *Board) ProhibitValue(depth, reason string, x, y, val int) error {
 func (b *Board) String() string {
 	var buf bytes.Buffer
 
-	for y := 0; y < b.size; y++ {
-		for x := 0; x < b.size; x++ {
+	for y := 0; y < b.Size(); y++ {
+		for x := 0; x < b.Size(); x++ {
 			cell := b.CellAt(x, y)
 			if val, ok := cell.GetValue(); ok {
 				fmt.Fprintf(&buf, "%d ", val)
 			} else {
 				fmt.Fprintf(&buf, "- ")
 			}
-			if (x+1)%b.blockWidth == 0 {
+			if (x+1)%b.spec.blockWidth == 0 {
 				fmt.Fprintf(&buf, "\t")
 			}
 		}
-		if (y+1)%b.blockHeight == 0 {
+		if (y+1)%b.spec.blockHeight == 0 {
 			fmt.Fprintf(&buf, "\n")
 		}
 		fmt.Fprintf(&buf, "\n")
@@ -287,16 +330,24 @@ func (b *Board) Solve() error {
 
 	if b.IsSolved() {
 		if err := b.IsValid(); err == nil {
-			fmt.Printf("\nsolved!\n")
+			if !b.quiet {
+				fmt.Printf("\nsolved!\n")
+			}
 		} else {
-			fmt.Printf("solved but solution is invalid! %s\n", err)
+			if !b.quiet {
+				fmt.Printf("solved but solution is invalid! %s\n", err)
+			}
 		}
 	} else {
-		fmt.Printf("\ndidn't solve!\n")
-		fmt.Println(b.Unsolved())
+		if !b.quiet {
+			fmt.Printf("\ndidn't solve!\n")
+			fmt.Println(b.Unsolved())
+		}
 	}
 
-	fmt.Println(b.String())
+	if !b.quiet {
+		fmt.Println(b.String())
+	}
 
 	return nil
 }
@@ -320,6 +371,16 @@ func (b *Board) Unfilled() *Group {
 	return NewGroup(cells)
 }
 
+func (b *Board) Filled() *Group {
+	var cells []CellIndex
+	for ci, c := range b.cells {
+		if _, set := c.GetValue(); set {
+			cells = append(cells, CellIndex(ci))
+		}
+	}
+	return NewGroup(cells)
+}
+
 func within(ci int, list []int) bool {
 	for _, member := range list {
 		if ci == member {
@@ -334,19 +395,20 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 	// iterate over all the groups
 	for _, g := range b.Groups() {
 		// make a map that collects the cells within the group that take a specific value
-		m := make(map[int][]*Cell)
-		for _, c := range g.Cells(b) {
+		m := make(map[int][]CellIndex)
+		for _, ci := range g.Indices() {
+			c := b.Cell(ci)
 			if c.Filled() {
 				continue
 			}
-			for _, val := range c.Possibilities(b.size) {
-				m[val] = append(m[val], c)
+			for _, val := range c.Possibilities(b.Size()) {
+				m[val] = append(m[val], ci)
 			}
 		}
-		for val, cells := range m {
-			if len(cells) == 1 {
-				x, y := b.Coords(cells[0])
-				cell := b.CellAt(x, y)
+		for val, cis := range m {
+			if len(cis) == 1 {
+				x, y := b.IndexToCoords(cis[0])
+				cell := b.Cell(cis[0])
 				if !cell.Filled() {
 					if err := b.SetValue("", "value can only appear in cell", x, y, val); err != nil {
 						return false, fmt.Errorf("solveHiddenSingles: %w", err)
@@ -376,7 +438,7 @@ func (b *Board) solveNakedGroups() (bool, error) {
 						x, y := b.IndexToCoords(ci)
 						for _, val := range possible {
 							if b.Cell(ci).CanTake(val) {
-								if err := b.ProhibitValue("", "naked group", x, y, val); err != nil {
+								if err := b.ProhibitValue("", fmt.Sprintf("naked group %v", possible), x, y, val); err != nil {
 									return err
 								}
 								progress = true
@@ -399,13 +461,13 @@ func (b *Board) solveNakedGroups() (bool, error) {
 func (b *Board) solveBlockGroupIntersections() (bool, error) {
 	var progress bool
 
-	for _, block := range b.blocks {
+	for _, block := range b.spec.blocks {
 		for _, val := range block.Possibilities(b) {
 			set := block.CanTake(val, b)
 			if set.Len() < 2 {
 				continue
 			}
-			for _, other := range append(b.rows, b.cols...) {
+			for _, other := range append(b.spec.rows, b.spec.cols...) {
 				if set.ContainedBy(other) {
 					for _, ci := range other.Indices() {
 						if !set.Contains(ci) {
@@ -428,20 +490,20 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 func (b *Board) Unsolved() string {
 	var buf bytes.Buffer
 
-	for y := 0; y < b.size; y++ {
-		for x := 0; x < b.size; x++ {
+	for y := 0; y < b.Size(); y++ {
+		for x := 0; x < b.Size(); x++ {
 			c := b.CellAt(x, y)
 			if c.Filled() {
 				continue
 			}
-			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Possibilities(b.size))
+			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Possibilities(b.Size()))
 		}
 	}
 	return buf.String()
 }
 
 func (b *Board) IsValid() error {
-	for _, g := range append(b.blocks, append(b.rows, b.cols...)...) {
+	for _, g := range append(b.spec.blocks, append(b.spec.rows, b.spec.cols...)...) {
 		seen := make(map[int]CellIndex)
 		for _, ci := range g.Indices() {
 			c := b.Cell(ci)
@@ -449,8 +511,10 @@ func (b *Board) IsValid() error {
 				if _, found := seen[v]; found {
 					x1, y1 := b.IndexToCoords(ci)
 					x2, y2 := b.IndexToCoords(seen[v])
-					fmt.Println("invalid board detected")
-					return fmt.Errorf("(%d,%d) and (%d,%d) are both %d", x1, y1, x2, y2, v)
+					if !b.quiet {
+						fmt.Println("invalid board detected")
+					}
+					panic(fmt.Errorf("(%d,%d) and (%d,%d) are both %d", x1, y1, x2, y2, v))
 				} else {
 					seen[v] = ci
 				}
@@ -460,11 +524,45 @@ func (b *Board) IsValid() error {
 
 	for ci, c := range b.cells {
 		if !c.IsSet() {
-			if len(c.Possibilities(b.MaxVal())) == 0 {
-				fmt.Println("invalid board detected")
+			if len(c.Possibilities(b.Size())) == 0 {
+				if !b.quiet {
+					fmt.Println("invalid board detected")
+				}
 				x, y := b.IndexToCoords(CellIndex(ci))
 				return fmt.Errorf("(%d,%d) is unfilled and has no candidates", x, y)
 			}
+		}
+	}
+
+	for ci, c := range b.cells {
+		if c.IsSet() {
+			continue
+		}
+		for val := 1; val <= b.Size(); val++ {
+			found := false
+			var index CellIndex
+			for _, g := range b.GroupsContaining(CellIndex(ci)) {
+				if index, found = g.FindSetValue(val, b); found {
+					break
+				}
+			}
+			if found && c.CanTake(val) {
+				x, y := b.IndexToCoords(CellIndex(ci))
+				x2, y2 := b.IndexToCoords(index)
+				panic(fmt.Errorf("(%d,%d) says it can take %d but (%d,%d)=%d", x, y, val, x2, y2, val))
+			}
+
+			/* Attenpting to validate the consistency of the prohibition list but
+			this isn't correct: things can be prohibited for more complex reasons.
+
+			If something isn't on the prohibition list, but should be, *that* is an error.
+
+
+			if !found && !c.CanTake(val) {
+				x, y := b.IndexToCoords(CellIndex(ci))
+				panic(fmt.Errorf("(%d,%d) says it cannot take %d but it can", x, y, val))
+			}
+			*/
 		}
 	}
 
@@ -475,4 +573,70 @@ func (b *Board) Validate() {
 	if err := b.IsValid(); err != nil {
 		panic(fmt.Errorf("invalid board: %e", err))
 	}
+}
+
+// MakePuzzle generates a puzzle whose solution matches
+// this board, which must be a complete and valid board.
+// The original board remains untocued.
+// When we reach "target" number of filled cells in our
+// puzzle, we are done.
+func (b *Board) MakePuzzle(target int) (*Board, error) {
+	if !b.IsSolved() {
+		return nil, fmt.Errorf("provided board is not complete")
+	}
+	if err := b.IsValid(); err != nil {
+		return nil, fmt.Errorf("provided board is not valid: %e", err)
+	}
+
+	var removeOne func(*Board) (*Board, error)
+
+	removeOne = func(board *Board) (*Board, error) {
+		// build a randomized list of filled cells
+		filled := board.Filled().Shuffled()
+		if !b.quiet {
+			fmt.Printf("removeOne: board has %d filled cells\n", filled.Len())
+		}
+
+		for _, ci := range filled.Indices() {
+			puzzle := board.Duplicate()
+			//			val, _ := b.Cell(ci).GetValue()
+			//			x, y := b.IndexToCoords(ci)
+			//			fmt.Printf("removing value %d at (%d,%d)\n", val, x, y)
+			puzzle.UnsetValue(ci)
+			fmt.Printf(".")
+
+			nb := puzzle.Duplicate()
+			err := nb.Solve()
+			// an error means we've hit a dead-end and need to backtrack
+			// (not sure whether this can actually happen given that we
+			// are starting with a solved board and working backwards,
+			// but better safe than sorry)
+			if err != nil {
+				fmt.Printf("\nbacktracking: solver returned error: %s\n", err)
+				continue
+			}
+
+			// if we weren't able to solve, then we have gone too far and there
+			// isn't a unique solution, so we also need to backtrack
+			if !nb.IsSolved() {
+				//				fmt.Println("solution was ambiguous; trying next cell")
+				continue
+			}
+
+			// We have a solveable puzzle; is it small enough yet?
+			if puzzle.Filled().Len() <= target {
+				fmt.Println("got a puzzle!")
+				return puzzle, nil
+			}
+
+			// our path is good, but we're not done yet
+			//			fmt.Printf("have a puzzle with %d filled\n", puzzle.Filled().Len())
+			if finalPuzzle, err := removeOne(puzzle); err == nil {
+				return finalPuzzle, nil
+			}
+		}
+		return board, fmt.Errorf("couldn't generate a puzzle with requested target; only got to %d", board.Unfilled().Len())
+	}
+
+	return removeOne(b)
 }

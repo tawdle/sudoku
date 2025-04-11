@@ -23,19 +23,25 @@ func (c *Cell) SetValue(val int) error {
 }
 
 func (c *Cell) Prohibit(val int) error {
-	if c.Filled() {
-		if val != c.value {
-			return fmt.Errorf("tried to prohibit value in cell that already has one")
-		}
-		return nil
-	}
 	c.not |= (1 << (val - 1))
 	return nil
 }
 
+func (c *Cell) Allow(val int) error {
+	if c.Filled() {
+		return fmt.Errorf("tried to allow candidate in a cell that is already set")
+	}
+	c.not &^= (1 << (val - 1))
+	return nil
+}
+
+func (c *Cell) ClearProhibitions() {
+	c.not = 0
+}
+
 func (c *Cell) CanTake(val int) bool {
 	if c.Filled() {
-		return c.value == val
+		return false
 	}
 	return c.not&(1<<(val-1)) == 0
 }
@@ -71,4 +77,13 @@ func (c *Cell) Possibilities(valueCount int) []int {
 		count++
 	}
 	return result
+}
+
+func (c *Cell) String() string {
+	switch c.value {
+	case 0:
+		return "-"
+	default:
+		return fmt.Sprintf("%d", c.value)
+	}
 }
