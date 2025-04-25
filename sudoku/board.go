@@ -159,7 +159,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	}
 
 	for _, ci := range marked {
-		candidates := b.Cell(ci).Possibilities(b.Size())
+		candidates := b.Cell(ci).Candidates(b.Size())
 		if len(candidates) == 1 {
 			x, y := b.IndexToCoords(ci)
 			if err := b.SetValue(depth+" ", "only one left after prohibition", x, y, candidates[0]); err != nil {
@@ -296,7 +296,7 @@ func (b *Board) Unsolved() string {
 			if c.Filled() {
 				continue
 			}
-			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Possibilities(b.Size()))
+			fmt.Fprintf(&buf, "(%d,%d): %+v\n", x, y, c.Candidates(b.Size()))
 		}
 	}
 	return buf.String()
@@ -324,7 +324,7 @@ func (b *Board) IsValid() error {
 
 	for ci, c := range b.cells {
 		if !c.IsSet() {
-			if len(c.Possibilities(b.Size())) == 0 {
+			if len(c.Candidates(b.Size())) == 0 {
 				if !b.quiet {
 					fmt.Println("invalid board detected")
 				}

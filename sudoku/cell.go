@@ -58,7 +58,7 @@ func (c *Cell) GetValue() (val int, ok bool) {
 	return c.value, c.value != 0
 }
 
-func (c *Cell) Possibilities(valueCount int) []int {
+func (c *Cell) Candidates(valueCount int) []int {
 	if c.Filled() {
 		return nil
 	}

@@ -28,7 +28,7 @@ func Fill(board *Board) (*Board, error) {
 	fillNextCell = func(board *Board) (*Board, error) {
 		// Pick an unfilled cell randomly
 		ci := board.Unfilled().PickOne()
-		candidates := board.Cell(ci).Possibilities(board.Size())
+		candidates := board.Cell(ci).Candidates(board.Size())
 		rand.Shuffle(len(candidates), func(x, y int) { candidates[x], candidates[y] = candidates[y], candidates[x] })
 		for _, candidate := range candidates {
 			if nb, err := tryCandidate(board.Duplicate(), ci, candidate); err == nil {
@@ -118,7 +118,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 			if c.Filled() {
 				continue
 			}
-			for _, val := range c.Possibilities(b.Size()) {
+			for _, val := range c.Candidates(b.Size()) {
 				m[val] = append(m[val], ci)
 			}
 		}
