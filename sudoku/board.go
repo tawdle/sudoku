@@ -88,7 +88,7 @@ func (b *Board) CellIndex(x, y int) CellIndex {
 	return CellIndex(x + y*b.Size())
 }
 
-func (b *Board) Coords(c *Cell) (x int, y int) {
+func (b *Board) Coords(c *Cell) (x, y, z int) {
 	for i := range b.cells {
 		if c == &b.cells[i] {
 			return b.IndexToCoords(CellIndex(i))
@@ -97,8 +97,12 @@ func (b *Board) Coords(c *Cell) (x int, y int) {
 	panic(fmt.Errorf("couldn't find cell %+v", c))
 }
 
-func (b *Board) IndexToCoords(ci CellIndex) (x, y int) {
-	return int(ci) % b.Size(), int(ci) / b.Size()
+// IndexToCoords returns the column index, row index, and
+// block index of the cell with the given CellIndex
+func (b *Board) IndexToCoords(ci CellIndex) (x, y, z int) {
+	x, y = int(ci)%b.Size(), int(ci)/b.Size()
+	z = x/b.spec.blockWidth + y/b.spec.blockHeight*b.spec.blockHeight
+	return x, y, z
 }
 
 func (b Board) Groups() []*Group {
@@ -108,11 +112,11 @@ func (b Board) Groups() []*Group {
 func (b *Board) GroupsContaining(ci CellIndex) []*Group {
 	result := make([]*Group, 0, 3)
 
-	x, y := b.IndexToCoords(ci)
+	x, y, z := b.IndexToCoords(ci)
 
 	result = append(result, b.spec.cols[x])
 	result = append(result, b.spec.rows[y])
-	result = append(result, b.spec.blocks[x/b.spec.blockWidth+y/b.spec.blockHeight*b.spec.blockHeight])
+	result = append(result, b.spec.blocks[z])
 	return result
 }
 
@@ -125,7 +129,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	}
 
 	if !b.Cell(ci).CanTake(val) {
-		x, y := b.IndexToCoords(ci)
+		x, y, _ := b.IndexToCoords(ci)
 		return fmt.Errorf("tried to set value on %d not legal at (%d,%d)", val, x, y)
 	}
 
@@ -144,7 +148,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 		if g.Contains(ci) {
 			for _, i := range g.Indices() {
 				if i != ci && b.Cell(i).CanTake(val) {
-					x, y := b.IndexToCoords(i)
+					x, y, _ := b.IndexToCoords(i)
 					if err := b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val); err != nil {
 						return err
 					}
@@ -161,7 +165,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	for _, ci := range marked {
 		candidates := b.Cell(ci).Candidates(b.Size())
 		if len(candidates) == 1 {
-			x, y := b.IndexToCoords(ci)
+			x, y, _ := b.IndexToCoords(ci)
 			if err := b.SetValue(depth+" ", "only one left after prohibition", x, y, candidates[0]); err != nil {
 				return err
 			}
@@ -309,8 +313,8 @@ func (b *Board) IsValid() error {
 			c := b.Cell(ci)
 			if v, set := c.GetValue(); set {
 				if _, found := seen[v]; found {
-					x1, y1 := b.IndexToCoords(ci)
-					x2, y2 := b.IndexToCoords(seen[v])
+					x1, y1, _ := b.IndexToCoords(ci)
+					x2, y2, _ := b.IndexToCoords(seen[v])
 					if !b.quiet {
 						fmt.Println("invalid board detected")
 					}
@@ -328,7 +332,7 @@ func (b *Board) IsValid() error {
 				if !b.quiet {
 					fmt.Println("invalid board detected")
 				}
-				x, y := b.IndexToCoords(CellIndex(ci))
+				x, y, _ := b.IndexToCoords(CellIndex(ci))
 				return fmt.Errorf("(%d,%d) is unfilled and has no candidates", x, y)
 			}
 		}
@@ -347,8 +351,8 @@ func (b *Board) IsValid() error {
 				}
 			}
 			if found && c.CanTake(val) {
-				x, y := b.IndexToCoords(CellIndex(ci))
-				x2, y2 := b.IndexToCoords(index)
+				x, y, _ := b.IndexToCoords(CellIndex(ci))
+				x2, y2, _ := b.IndexToCoords(index)
 				panic(fmt.Errorf("(%d,%d) says it can take %d but (%d,%d)=%d", x, y, val, x2, y2, val))
 			}
 

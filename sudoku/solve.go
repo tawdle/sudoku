@@ -43,7 +43,7 @@ func Fill(board *Board) (*Board, error) {
 		if err := board.IsValid(); err != nil {
 			return nil, err
 		}
-		x, y := board.IndexToCoords(ci)
+		x, y, _ := board.IndexToCoords(ci)
 		if err := board.SetValue("", "random pick", x, y, value); err != nil {
 			return nil, err
 		}
@@ -123,9 +123,9 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 			}
 		}
 		for val, cis := range m {
-			if len(cis) == 1 {
-				x, y := b.IndexToCoords(cis[0])
-				cell := b.Cell(cis[0])
+			if cis.Len() == 1 {
+				x, y, _ := b.IndexToCoords(cis.Indices()[0])
+				cell := b.Cell(cis.Indices()[0])
 				if !cell.Filled() {
 					if err := b.SetValue("", "value can only appear in cell", x, y, val); err != nil {
 						return false, fmt.Errorf("solveHiddenSingles: %w", err)
@@ -152,7 +152,7 @@ func (b *Board) solveNakedGroups() (bool, error) {
 			if len(possible) == combo.Len() {
 				for _, ci := range unfilled.Indices() {
 					if !combo.Contains(ci) {
-						x, y := b.IndexToCoords(ci)
+						x, y, _ := b.IndexToCoords(ci)
 						for _, val := range possible {
 							if b.Cell(ci).CanTake(val) {
 								if err := b.ProhibitValue("", fmt.Sprintf("naked group %v", possible), x, y, val); err != nil {
@@ -189,7 +189,7 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 					for _, ci := range other.Indices() {
 						if !set.Contains(ci) {
 							if b.Cell(ci).CanTake(val) {
-								x, y := b.IndexToCoords(ci)
+								x, y, _ := b.IndexToCoords(ci)
 								if err := b.ProhibitValue("", "block group intersection", x, y, val); err != nil {
 									return false, err
 								}
