@@ -287,7 +287,7 @@ func (g *Group) String(b *Board) string {
 	result.WriteString("[ ")
 	for _, ci := range g.cells {
 		x, y, _ := b.IndexToCoords(ci)
-		fmt.Fprintf(&result, "(%d,%d) ", x+1, y+1)
+		fmt.Fprintf(&result, "(%d,%d) ", x, y)
 	}
 	result.WriteString("]")
 	return result.String()

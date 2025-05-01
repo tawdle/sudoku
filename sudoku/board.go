@@ -155,19 +155,17 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	// then, we deal with the fallout from any of those markings
 	var marked []CellIndex
 	for _, g := range b.GroupsContaining(ci) {
-		if g.Contains(ci) {
-			for _, i := range g.Indices() {
-				if i != ci && b.Cell(i).CanTake(val) {
-					x, y, _ := b.IndexToCoords(i)
-					if err := b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val); err != nil {
-						return err
-					}
-					marked = append(marked, ci)
-				} else {
-					// this won't impact anything about how the puzzle gets solved,
-					// but it does ensure our candidate lists remain in sync
-					b.Cell(i).Prohibit(val)
+		for _, i := range g.Indices() {
+			if i != ci && b.Cell(i).CanTake(val) {
+				x, y, _ := b.IndexToCoords(i)
+				if err := b.ProhibitValue(depth+" ", "excluding because of set value", x, y, val); err != nil {
+					return err
 				}
+				marked = append(marked, ci)
+			} else {
+				// this won't impact anything about how the puzzle gets solved,
+				// but it does ensure our candidate lists remain in sync
+				b.Cell(i).Prohibit(val)
 			}
 		}
 	}

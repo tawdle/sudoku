@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math/rand"
+
+	"gonum.org/v1/gonum/stat/combin"
 )
 
 // Given a board in any state, returns a new board with all of its cells filled (or error)
@@ -204,65 +206,37 @@ func (b *Board) solveSkyscrapers() (bool, error) {
 	// Iterate over each column
 	// Build the value -> cells map
 	// If we see a value that can appear in exactly
-	// two cells, we record an entry: candidate -> column -> cells
-	// Once we're done, we look to see whether any two-spot candidates
-	// appear in two or more columns. Then we some combo-nating to do:
-	// We're looking for pairs of columns where two of the cells are in
-	// the same row, and the other two cells are in different blocks.
+	// two cells, we record an entry: candidate -> column -> two cells
 
+	// Once we have built that structure, we iterate over each candidate,
+	// and look to see whether it has at least two interesting columns.
+	// If it does have two or more columns, we iterate over all the
+	// combinations of two of those columns at a time
+	// Then for each ordered pair of columns, we look to see whether whether any
+	// of the possible 4 pairings of cells across the two columns occur in the same
+	// row. If so, we have found what we're looking for, and can do some prohibition
+	// based on the other two cells.
+
+	// Then we repeat the same process for other the orientation.
+	// map[candidate]map[x]*Group
 	var progress bool
-	var findChain func(int, *Group, bool) *Group
-	findChain = func(candidate int, chain *Group, isCol bool) *Group {
-		// Did we find a chain of 4? We're done
-		if chain.Len() == 4 {
-			fmt.Printf("found chain on %d: %s\n", candidate, chain.String(b))
-			_, _, z1 := b.IndexToCoords(chain.First())
-			_, _, z2 := b.IndexToCoords(chain.Last())
-			// chain is only interesting if two ends are in different blocks
-			if z1 != z2 {
-				return chain
-			}
-			return nil
-		}
-
-		fmt.Printf("trying to extend chain on %d: %s\n", candidate, chain.String(b))
-
-		// try to extend the chain
-		var nextGroup *Group
-		isCol = !isCol
-		last := chain.Last()
-		x, y, _ := b.IndexToCoords(last)
-		if isCol {
-			nextGroup = b.spec.cols[x]
+	sameRowOrCol := func(checkRow bool, first CellIndex, second CellIndex) bool {
+		x1, y1, _ := b.IndexToCoords(first)
+		x2, y2, _ := b.IndexToCoords(second)
+		if checkRow {
+			return y1 == y2
 		} else {
-			nextGroup = b.spec.rows[y]
+			return x1 == x2
 		}
-
-		m := nextGroup.MapCandidatesToCells(b)
-		if g, exists := m[candidate]; exists && g.Len() == 2 {
-			ci := g.Minus(last).First()
-			if !chain.Contains(ci) {
-				return findChain(candidate, chain.Clone().Append(ci), isCol)
-			}
-		}
-		return nil
 	}
 
-	// If we find a chain, we take the first and last cells,
-	// and prohibit the candidate in any cell that is seen
-	// by both cells (excluding, of course, the 2 cells themselves)
-	prohibit := func(chain *Group, candidate int) error {
-		if chain == nil {
-			return nil
-		}
-
-		first, last := chain.First(), chain.Last()
-		targets := b.CellsVisibleTo(first).Intersection(b.CellsVisibleTo(last)).Minus(first, last)
-		for _, c := range targets.Indices() {
-			cell := b.Cell(c)
+	prohibit := func(candidate int, one CellIndex, two CellIndex, all *Group) error {
+		targets := b.CellsVisibleTo(one).Intersection(b.CellsVisibleTo(two)).Minus(all.Indices()...)
+		for _, ci := range targets.Indices() {
+			cell := b.Cell(ci)
 			if cell.CanTake(candidate) {
 				progress = true
-				x, y, _ := b.IndexToCoords(c)
+				x, y, _ := b.IndexToCoords(ci)
 				if err := b.ProhibitValue("", "skyscraper", x, y, candidate); err != nil {
 					return err
 				}
@@ -271,32 +245,62 @@ func (b *Board) solveSkyscrapers() (bool, error) {
 		return nil
 	}
 
-	for _, g := range b.spec.cols {
-		m := g.MapCandidatesToCells(b)
-		for candidate, colgroup := range m {
-			if colgroup.Len() == 2 {
-				if err := prohibit(findChain(candidate, colgroup, true), candidate); err != nil {
-					return progress, err
+	find := func(primaryGroups []*Group, isCol bool) error {
+		var err error
+		m := make(map[int][]*Group)
+
+		for _, col := range primaryGroups {
+			cm := col.MapCandidatesToCells(b)
+			for candidate, cells := range cm {
+				if cells.Len() != 2 {
+					continue
 				}
-				if err := prohibit(findChain(candidate, colgroup.Reversed(), true), candidate); err != nil {
-					return progress, err
+				if m[candidate] == nil {
+					m[candidate] = make([]*Group, 0, 2)
+				}
+				m[candidate] = append(m[candidate], cells)
+			}
+		}
+
+		for candidate, groups := range m {
+			if len(groups) < 2 {
+				continue
+			}
+			// look at all the combinations of interesting columns
+			// taken 2 at a time
+			gen := combin.NewCombinationGenerator(len(groups), 2)
+			res := make([]int, 2)
+			for gen.Next() {
+				gen.Combination(res)
+				col1, col2 := groups[res[0]], groups[res[1]]
+
+				// We've got two groups, each with two cells
+				// Check to see whether they meet requirements
+				// for being a skyscraper:
+				all := col1.Clone().Append(col2.Indices()...)
+				switch {
+				case sameRowOrCol(isCol, col1.First(), col2.First()):
+					err = prohibit(candidate, col1.Last(), col2.Last(), all)
+				case sameRowOrCol(isCol, col1.Last(), col2.Last()):
+					err = prohibit(candidate, col1.First(), col2.First(), all)
+				case sameRowOrCol(isCol, col1.First(), col2.Last()):
+					err = prohibit(candidate, col1.Last(), col2.First(), all)
+				case sameRowOrCol(isCol, col1.Last(), col2.First()):
+					err = prohibit(candidate, col1.First(), col2.Last(), all)
+				}
+				if err != nil {
+					return err
 				}
 			}
 		}
+		return nil
 	}
 
-	for _, g := range b.spec.rows {
-		m := g.MapCandidatesToCells(b)
-		for candidate, rowgroup := range m {
-			if rowgroup.Len() == 2 {
-				if err := prohibit(findChain(candidate, rowgroup, false), candidate); err != nil {
-					return progress, err
-				}
-				if err := prohibit(findChain(candidate, rowgroup.Reversed(), false), candidate); err != nil {
-					return progress, err
-				}
-			}
-		}
+	if err := find(b.spec.cols, true); err != nil {
+		return progress, err
+	}
+	if err := find(b.spec.rows, false); err != nil {
+		return progress, err
 	}
 
 	return progress, nil
