@@ -120,6 +120,16 @@ func (b *Board) GroupsContaining(ci CellIndex) []*Group {
 	return result
 }
 
+func (b *Board) CellsVisibleTo(ci CellIndex) *Group {
+	cells := make([]CellIndex, 0, 3*b.Size())
+	x, y, z := b.IndexToCoords(ci)
+
+	cells = append(cells, b.spec.cols[x].cells...)
+	cells = append(cells, b.spec.rows[y].cells...)
+	cells = append(cells, b.spec.blocks[z].cells...)
+	return NewGroup(cells)
+}
+
 func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 	ci := b.CellIndex(x, y)
 
@@ -171,6 +181,7 @@ func (b *Board) SetValue(depth, reason string, x, y, val int) error {
 			}
 		}
 	}
+
 	return b.IsValid()
 }
 

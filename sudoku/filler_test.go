@@ -39,7 +39,7 @@ func TestMakePuzzle(t *testing.T) {
 		fmt.Println("generated a full board:")
 		fmt.Println(solution)
 		if assert.NoError(err) {
-			puzzle, err := MakePuzzle(solution, 23)
+			puzzle, err := MakePuzzle(solution, 24)
 			if assert.NoError(err) && assert.NoError(puzzle.IsValid()) {
 				fmt.Println("generated a puzzle...")
 				fmt.Println(puzzle)

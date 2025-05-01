@@ -63,6 +63,7 @@ func Fill(board *Board) (*Board, error) {
 }
 
 func (b *Board) Solve() error {
+	fmt.Printf("trying to solve puzzle:\n%s\n%s\b", b.String(), b.Unsolved())
 	for {
 		nakedGroups, err := b.solveNakedGroups()
 		if err != nil {
@@ -77,8 +78,12 @@ func (b *Board) Solve() error {
 		if err != nil {
 			return err
 		}
+		skyscrapers, err := b.solveSkyscrapers()
+		if err != nil {
+			return err
+		}
 
-		if !nakedGroups && !hiddenSingles && !blockIntersects {
+		if !skyscrapers && !nakedGroups && !hiddenSingles && !blockIntersects {
 			break
 		}
 	}
@@ -112,16 +117,7 @@ func (b *Board) solveHiddenSingles() (bool, error) {
 	// iterate over all the groups
 	for _, g := range b.Groups() {
 		// make a map that collects the cells within the group that take a specific value
-		m := make(map[int][]CellIndex)
-		for _, ci := range g.Indices() {
-			c := b.Cell(ci)
-			if c.Filled() {
-				continue
-			}
-			for _, val := range c.Candidates(b.Size()) {
-				m[val] = append(m[val], ci)
-			}
-		}
+		m := g.MapCandidatesToCells(b)
 		for val, cis := range m {
 			if cis.Len() == 1 {
 				x, y, _ := b.IndexToCoords(cis.Indices()[0])
@@ -201,6 +197,108 @@ func (b *Board) solveBlockGroupIntersections() (bool, error) {
 			}
 		}
 	}
+	return progress, nil
+}
+
+func (b *Board) solveSkyscrapers() (bool, error) {
+	// Iterate over each column
+	// Build the value -> cells map
+	// If we see a value that can appear in exactly
+	// two cells, we record an entry: candidate -> column -> cells
+	// Once we're done, we look to see whether any two-spot candidates
+	// appear in two or more columns. Then we some combo-nating to do:
+	// We're looking for pairs of columns where two of the cells are in
+	// the same row, and the other two cells are in different blocks.
+
+	var progress bool
+	var findChain func(int, *Group, bool) *Group
+	findChain = func(candidate int, chain *Group, isCol bool) *Group {
+		// Did we find a chain of 4? We're done
+		if chain.Len() == 4 {
+			fmt.Printf("found chain on %d: %s\n", candidate, chain.String(b))
+			_, _, z1 := b.IndexToCoords(chain.First())
+			_, _, z2 := b.IndexToCoords(chain.Last())
+			// chain is only interesting if two ends are in different blocks
+			if z1 != z2 {
+				return chain
+			}
+			return nil
+		}
+
+		fmt.Printf("trying to extend chain on %d: %s\n", candidate, chain.String(b))
+
+		// try to extend the chain
+		var nextGroup *Group
+		isCol = !isCol
+		last := chain.Last()
+		x, y, _ := b.IndexToCoords(last)
+		if isCol {
+			nextGroup = b.spec.cols[x]
+		} else {
+			nextGroup = b.spec.rows[y]
+		}
+
+		m := nextGroup.MapCandidatesToCells(b)
+		if g, exists := m[candidate]; exists && g.Len() == 2 {
+			ci := g.Minus(last).First()
+			if !chain.Contains(ci) {
+				return findChain(candidate, chain.Clone().Append(ci), isCol)
+			}
+		}
+		return nil
+	}
+
+	// If we find a chain, we take the first and last cells,
+	// and prohibit the candidate in any cell that is seen
+	// by both cells (excluding, of course, the 2 cells themselves)
+	prohibit := func(chain *Group, candidate int) error {
+		if chain == nil {
+			return nil
+		}
+
+		first, last := chain.First(), chain.Last()
+		targets := b.CellsVisibleTo(first).Intersection(b.CellsVisibleTo(last)).Minus(first, last)
+		for _, c := range targets.Indices() {
+			cell := b.Cell(c)
+			if cell.CanTake(candidate) {
+				progress = true
+				x, y, _ := b.IndexToCoords(c)
+				if err := b.ProhibitValue("", "skyscraper", x, y, candidate); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for _, g := range b.spec.cols {
+		m := g.MapCandidatesToCells(b)
+		for candidate, colgroup := range m {
+			if colgroup.Len() == 2 {
+				if err := prohibit(findChain(candidate, colgroup, true), candidate); err != nil {
+					return progress, err
+				}
+				if err := prohibit(findChain(candidate, colgroup.Reversed(), true), candidate); err != nil {
+					return progress, err
+				}
+			}
+		}
+	}
+
+	for _, g := range b.spec.rows {
+		m := g.MapCandidatesToCells(b)
+		for candidate, rowgroup := range m {
+			if rowgroup.Len() == 2 {
+				if err := prohibit(findChain(candidate, rowgroup, false), candidate); err != nil {
+					return progress, err
+				}
+				if err := prohibit(findChain(candidate, rowgroup.Reversed(), false), candidate); err != nil {
+					return progress, err
+				}
+			}
+		}
+	}
+
 	return progress, nil
 }
 

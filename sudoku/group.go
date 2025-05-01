@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"slices"
+	"strings"
 )
 
 type Group struct {
@@ -44,8 +46,45 @@ func NewBlockGroup(board *Board, blockX, blockY, blockWidth, blockHeight int) *G
 	return NewGroup(cells)
 }
 
+func (g *Group) Clone() *Group {
+	return NewGroup(slices.Clone(g.cells))
+}
+
 func (g *Group) Len() int {
 	return len(g.cells)
+}
+
+func (g *Group) First() CellIndex {
+	if len(g.cells) < 1 {
+		panic(fmt.Errorf("called First() on empty group"))
+	}
+	return g.cells[0]
+}
+
+func (g *Group) Last() CellIndex {
+	if len(g.cells) < 1 {
+		panic(fmt.Errorf("called Last() on empty group"))
+	}
+	return g.cells[len(g.cells)-1]
+}
+
+// Minus() returns a new Group with the specified
+// Cellindex(es) removed
+func (g *Group) Minus(cis ...CellIndex) *Group {
+	cells := make([]CellIndex, 0, len(g.cells))
+	for _, source := range g.cells {
+		found := false
+		for _, remove := range cis {
+			if source == remove {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cells = append(cells, source)
+		}
+	}
+	return NewGroup(cells)
 }
 
 func (g *Group) Indices() []CellIndex {
@@ -158,7 +197,7 @@ func (g *Group) GenerateCombinations(callback func(combo *Group) error) error {
 	return nil
 }
 
-func (g *Group) Intersection(other Group) *Group {
+func (g *Group) Intersection(other *Group) *Group {
 	cells := make([]CellIndex, 0, len(g.cells))
 
 	for _, c := range g.cells {
@@ -203,9 +242,53 @@ func (g *Group) PickOne() CellIndex {
 	return g.cells[rand.Intn(len(g.cells))]
 }
 
+// Shuffled() returns a new group containing the same cells
+// of the current group, but in a random order.
+// Leaves original group unmodified.
 func (g *Group) Shuffled() *Group {
-	rand.Shuffle(len(g.cells), func(x, y int) {
-		g.cells[x], g.cells[y] = g.cells[y], g.cells[x]
+	cells := slices.Clone(g.cells)
+	rand.Shuffle(len(cells), func(x, y int) {
+		cells[x], cells[y] = cells[y], cells[x]
 	})
-	return NewGroup(g.cells)
+	return NewGroup(cells)
+}
+
+// Reversed returns a new group containing the same
+// of the current group, but in reverse order.
+// Leaves original group unmodified.
+func (g *Group) Reversed() *Group {
+	cells := slices.Clone(g.cells)
+	slices.Reverse(cells)
+	return NewGroup(cells)
+}
+
+func (g *Group) Append(cells ...CellIndex) *Group {
+	g.cells = append(g.cells, cells...)
+	return g
+}
+
+func (g *Group) MapCandidatesToCells(b *Board) map[int]*Group {
+	m := make(map[int]*Group)
+
+	for _, c := range g.cells {
+		for _, candidate := range b.Cell(c).Candidates(b.Size()) {
+			if ng, exists := m[candidate]; !exists {
+				m[candidate] = NewGroup([]CellIndex{c})
+			} else {
+				ng.Append(c)
+			}
+		}
+	}
+	return m
+}
+
+func (g *Group) String(b *Board) string {
+	var result strings.Builder
+	result.WriteString("[ ")
+	for _, ci := range g.cells {
+		x, y, _ := b.IndexToCoords(ci)
+		fmt.Fprintf(&result, "(%d,%d) ", x+1, y+1)
+	}
+	result.WriteString("]")
+	return result.String()
 }
